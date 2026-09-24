@@ -35,11 +35,7 @@ class BQM:
         mult deals with the /2 in the energy representation
         """
 
-        ''' Old version that can't handle the engineering notation
-        p_square = re.compile(r'(?P<coeff>[\+-]?\s*\d*\.?\d+)\s*(?P<var>\S+_\d+)\s*\^2')
-        p_product = re.compile(r'(?P<coeff>[\+-]?\s*\d*\.?\d+)\s*(?P<var_1>\S+_\d+)\s*\*\s*(?P<var_2>\S+_\d+)')
-        # p_ion = re.compile(r'(?P<specie>\S+)_(?P<pos>\d+)')
-        '''
+        ''' Old version was here '''
         p_square = re.compile(r'(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var>\S+_\d+)\s*\^2')
         p_product = re.compile(r'(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var_1>\S+_\d+)\s*\*\s*('
                                r'?P<var_2>\S+_\d+)')

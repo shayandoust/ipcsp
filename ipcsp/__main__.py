@@ -33,7 +33,7 @@ from copy import deepcopy
 '''
  The settings dictionary lists the predictions to run and parameters of the configuration spaces for
  integer programs. It is divided in two parts: to reproduce Table 1 in the paper and quantum experiments
- 
+
  Common parameters:
    'test' -- True if the test is chosen to run
    'multiple' -- the number of repeats of the unit cell per direction, essentially, we are predicting multiple
@@ -44,24 +44,24 @@ from copy import deepcopy
     If top is 1, then only the global optimum will be considered. The values of top > 1 should be used with caution.
     Equivalent allocations (but different solutions of the integer program) with the same energy likely will be produced,
     thus, the number should be larger than the required number of different solutions. Further, the current version of
-    Gurobi can occasionally produce solutions violating constraints. This is a bug, which should be fixed 
-    in future versions of Gurobi based on forum discussions. We deal with this issue by simply filtering out incorrect 
+    Gurobi can occasionally produce solutions violating constraints. This is a bug, which should be fixed
+    in future versions of Gurobi based on forum discussions. We deal with this issue by simply filtering out incorrect
     solutions for the time being.
-   
- Quantum annealing specific parameters: 
+
+ Quantum annealing specific parameters:
    'at_dwave' -- True will connect to a D-Wave quantum annealer and use your computational budget (register first)
    'at_dwave' -- False will rely on the local simulated annealing
    'num_reads' -- the number of solutions that will be sampled using annealing
-    'annealing_time' -- how long the quantum annealing will take per sample. Slower "readouts" can occasionally 
+    'annealing_time' -- how long the quantum annealing will take per sample. Slower "readouts" can occasionally
       lead to better results occasionally
-    'infinity_placement' and 'infinity_orbit' are parameters gamma and mu defined in the paper to energetically 
+    'infinity_placement' and 'infinity_orbit' are parameters gamma and mu defined in the paper to energetically
        penalise allocations that have incorrect stoichiometry and have two atoms on top of each other
-       
-Note, Gurobi is called first in the quantum section as well as a shortcut to generate coefficients 
+
+Note, Gurobi is called first in the quantum section as well as a shortcut to generate coefficients
 of the the integer program corresponding to the periodic lattice atom allocation problem.
 It is written into model.lp. The file lp_to_bqm.py contains tools to convert this model into a QUBO problem
 that can be submitted to the quantum annealer. We don't do a local minimisation step here as the structures
-are relatively simple. 
+are relatively simple.
 '''
 
 settings = {
@@ -205,18 +205,18 @@ def get_cif_energies(filename, library, format='cif'):
 def benchmark():
     # Preparing a folder with results
 
-    shutil.rmtree(os.path.join("..", "results"), ignore_errors=True)
-    os.mkdir(os.path.join("..", "results"))
+    shutil.rmtree(os.path.join(".", "results"), ignore_errors=True)
+    os.mkdir(os.path.join(".", "results"))
 
     '''
-    
+
     Single test selector
-    
+
     for key in settings.keys():
         settings[key]['test'] = False
 
     settings['quantum_ZnS']['test'] = True
-    
+
     #'''
 
     df_summary = pd.DataFrame(columns=['name', 'grid', 'group', 'best_E', 'expected_E', 'time'])
@@ -253,9 +253,9 @@ def benchmark():
             print('It took ', end='')
             print(" %s seconds including IP and data generation" % (end - start))
 
-            df_summary = df_summary.append({'name': f'SrTiO3_{i}', 'grid': settings[f'SrTiO3_{i}']['grid'],
+            df_summary = pd.concat([df_summary, pd.DataFrame([{'name': f'SrTiO3_{i}', 'grid': settings[f'SrTiO3_{i}']['grid'],
                                             'group': settings[f'SrTiO3_{i}']['group'], 'best_E': best_energy,
-                                            'expected_E': energy, 'time': runtime}, ignore_index=True)
+                                            'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
     for i in range(1, 4):
         if settings[f'Y2O3_{i}']['test']:
@@ -282,9 +282,9 @@ def benchmark():
             print('It took ', end='')
             print(" %s seconds including IP and data generation" % (end - start))
 
-            df_summary = df_summary.append({'name': f'Y2O3_{i}', 'grid': settings[f'Y2O3_{i}']['grid'],
+            df_summary = pd.concat([df_summary, pd.DataFrame([{'name': f'Y2O3_{i}', 'grid': settings[f'Y2O3_{i}']['grid'],
                                             'group': settings[f'Y2O3_{i}']['group'], 'best_E': best_energy,
-                                            'expected_E': energy, 'time': runtime}, ignore_index=True)
+                                            'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
     # Y2Ti2O7
     for i in range(1, 3):
@@ -311,9 +311,9 @@ def benchmark():
             print('It took ', end='')
             print(" %s seconds" % (end - start))
 
-            df_summary = df_summary.append({'name': f'Y2Ti2O7_{i}', 'grid': settings[f'Y2Ti2O7_{i}']['grid'],
+            df_summary = pd.concat([df_summary, pd.DataFrame([{'name': f'Y2Ti2O7_{i}', 'grid': settings[f'Y2Ti2O7_{i}']['grid'],
                                             'group': settings[f'Y2Ti2O7_{i}']['group'], 'best_E': best_energy,
-                                            'expected_E': energy, 'time': runtime}, ignore_index=True)
+                                            'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
     for i in range(1, 5):
         if settings[f'MgAl2O4_{i}']['test']:
@@ -340,9 +340,9 @@ def benchmark():
             print('It took ', end='')
             print(" %s seconds" % (end - start))
 
-            df_summary = df_summary.append({'name': f'MgAl2O4_{i}', 'grid': settings[f'MgAl2O4_{i}']['grid'],
+            df_summary = pd.concat([df_summary, pd.DataFrame([{'name': f'MgAl2O4_{i}', 'grid': settings[f'MgAl2O4_{i}']['grid'],
                                             'group': settings[f'MgAl2O4_{i}']['group'], 'best_E': best_energy,
-                                            'expected_E': energy, 'time': runtime}, ignore_index=True)
+                                            'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
     for i in range(1, 3):
         if settings[f'Ca3Al2Si3O12_{i}']['test']:
@@ -373,11 +373,11 @@ def benchmark():
             print('It took ', end='')
             print(" %s seconds" % (end - start))
 
-            df_summary = df_summary.append({'name': f'Ca3Al2Si3O12_{i}', 'grid': settings[f'Ca3Al2Si3O12_{i}']['grid'],
+            df_summary = pd.concat([df_summary, pd.DataFrame([{'name': f'Ca3Al2Si3O12_{i}', 'grid': settings[f'Ca3Al2Si3O12_{i}']['grid'],
                                             'group': settings[f'Ca3Al2Si3O12_{i}']['group'], 'best_E': best_energy,
-                                            'expected_E': energy, 'time': runtime}, ignore_index=True)
+                                            'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
-    with open(os.path.join("..", "results", "summary.txt"), "w+") as f:
+    with open(os.path.join(".", "results", "summary.txt"), "w+") as f:
         print("Non-heuristic optimisation using Gurobi with subsequent local minimisation (test equivalent to Table 1 "
               "of the paper):", file=f)
         print(tabulate(df_summary, headers=["Test name", "Discretisation g", "Space group",
@@ -385,9 +385,9 @@ def benchmark():
                        tablefmt='github', showindex=False), file=f)
 
     '''
-    
+
     Start of the quantum section
-    
+
     '''
 
     df_summary = pd.DataFrame(columns=['name', 'dwave', 'best_E', 'expected_E'])
@@ -411,8 +411,8 @@ def benchmark():
 
         energy = get_cif_energies(filename='SrO.cif', library=SrTiO.filedir / 'SrTiO/buck.lib')
 
-        df_summary = df_summary.append({'name': 'quantum_SrO', 'dwave': settings['quantum_SrO']['at_dwave'],
-                                        'best_E': best_energy, 'expected_E': target_energy}, ignore_index=True)
+        df_summary = pd.concat([df_summary, pd.DataFrame([{'name': 'quantum_SrO', 'dwave': settings['quantum_SrO']['at_dwave'],
+                                        'best_E': best_energy, 'expected_E': target_energy}])], ignore_index=True)
 
         end = time()
         print('It took ', end='')
@@ -435,8 +435,8 @@ def benchmark():
 
         energy = get_cif_energies(filename='ZnS.cif', library=ZnS.filedir / 'ZnS/buck.lib')
 
-        df_summary = df_summary.append({'name': 'quantum_ZnS', 'dwave': settings['quantum_ZnS']['at_dwave'],
-                                        'best_E': best_energy, 'expected_E': target_energy}, ignore_index=True)
+        df_summary = pd.concat([df_summary, pd.DataFrame([{'name': 'quantum_ZnS', 'dwave': settings['quantum_ZnS']['at_dwave'],
+                                        'best_E': best_energy, 'expected_E': target_energy}])], ignore_index=True)
 
         end = time()
         print('It took ', end='')
@@ -460,8 +460,8 @@ def benchmark():
 
         energy = get_cif_energies(filename='ZrO2.cif', library=ZrO.filedir / 'ZrO/buck.lib')
 
-        df_summary = df_summary.append({'name': 'quantum_ZrO2', 'dwave': settings['quantum_ZrO2']['at_dwave'],
-                                        'best_E': best_energy, 'expected_E': target_energy}, ignore_index=True)
+        df_summary = pd.concat([df_summary, pd.DataFrame([{'name': 'quantum_ZrO2', 'dwave': settings['quantum_ZrO2']['at_dwave'],
+                                        'best_E': best_energy, 'expected_E': target_energy}])], ignore_index=True)
 
         end = time()
         print('It took ', end='')
@@ -485,14 +485,14 @@ def benchmark():
 
         energy = get_cif_energies(filename='SrTiO3.cif', library=SrTiO.filedir / 'SrTiO/buck.lib')
 
-        df_summary = df_summary.append({'name': 'quantum_SrTiO3', 'dwave': settings['quantum_SrTiO3']['at_dwave'],
-                                        'best_E': best_energy, 'expected_E': target_energy}, ignore_index=True)
+        df_summary = pd.concat([df_summary, pd.DataFrame([{'name': 'quantum_SrTiO3', 'dwave': settings['quantum_SrTiO3']['at_dwave'],
+                                        'best_E': best_energy, 'expected_E': target_energy}])], ignore_index=True)
 
         end = time()
         print('It took ', end='')
         print(" %s seconds" % (end - start))
 
-    with open(os.path.join("..", "results", "summary.txt"), "a") as f:
+    with open(os.path.join(".", "results", "summary.txt"), "a") as f:
         print("\n\n\n\n\n Quantum annealing for the periodic lattice atom allocation.\n", file=f)
         print(tabulate(df_summary, headers=["Test name", "D-Wave", "Best energy (eV)", "Target energy (eV)"],
                        tablefmt='github', showindex=False), file=f)
