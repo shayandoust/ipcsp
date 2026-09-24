@@ -7,4 +7,3 @@ from pathlib import Path
 # root_dir = Path(os.path.dirname(os.path.abspath(__file__)))
 root_dir = Path(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(root_dir)
-root_dir = Path('.')  # this bit doesn't acutually work, so os.path.join(".", ...)

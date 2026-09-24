@@ -310,7 +310,7 @@ class Allocate:
 
         np.set_printoptions(suppress=True)
         print('Five number summary of the interaction coefficients of the Ising hamiltonian:', np.percentile(
-            np.array(list(bqm_model.quadratic.values())), [0, 25, 50, 75, 100], interpolation='midpoint'))
+            np.array(list(bqm_model.quadratic.values())), [0, 25, 50, 75, 100], method='midpoint'))
 
         # print(bqm_model.linear, bqm_model.quadratic, bqm_model.offset)
         print("The offset is equal to", bqm_model.offset)

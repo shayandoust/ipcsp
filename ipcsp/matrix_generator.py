@@ -47,7 +47,7 @@ class Phase:
 
         self.garnet = False  # HACK:garnet case is treated separately
 
-        with open(os.path.join(".", self.filedir / phase_name / 'radii.lib'), 'r') as f:
+        with open(self.filedir / phase_name / 'radii.lib', 'r') as f:
             for line in f.readlines():
                 if line.startswith('#'):
                     continue
@@ -73,7 +73,7 @@ class Phase:
 
         try:
 
-            with open(os.path.join(".", self.filedir / phase_name / 'buck.lib'), 'r') as f:
+            with open(self.filedir / phase_name / 'buck.lib', 'r') as f:
                 charge_lines = False
                 buck_lines = False
 
