@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Computational output, temporary & generated files by Gurobi, GULP, and D-Wave
+*.lp
+*.gin
+*.got
+gulptmp_*
+last_dwave.json
+results/
+best_ipcsp.vasp
+
+# Cached interaction & Ewald matrices (.npy)
+ipcsp/data/**/*.npy
+ipcsp/data/Ewald/*.npy
