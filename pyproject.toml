@@ -1,0 +1,13 @@
+[project]
+name = "ipcsp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ase>=3.29.0",
+    "gurobipy>=13.0.3",
+    "numba>=0.67.0",
+    "pandas>=2.3.3",
+    "tabulate>=0.10.0",
+]
