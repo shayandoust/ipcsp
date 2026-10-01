@@ -14,8 +14,8 @@ DEBUG = False
 
 class BQM:
 
-    p_ion = re.compile(r'(?P<specie>\S+)_(?P<pos>\d+)')
-    p_rhs = re.compile(r'(=|<=)\s*(?P<int>\d+)')
+    p_ion = re.compile(r"(?P<specie>\S+)_(?P<pos>\d+)")
+    p_rhs = re.compile(r"(=|<=)\s*(?P<int>\d+)")
 
     def __init__(self):
         self.linear = {}
@@ -35,10 +35,14 @@ class BQM:
         mult deals with the /2 in the energy representation
         """
 
-        ''' Old version was here '''
-        p_square = re.compile(r'(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var>\S+_\d+)\s*\^2')
-        p_product = re.compile(r'(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var_1>\S+_\d+)\s*\*\s*('
-                               r'?P<var_2>\S+_\d+)')
+        """ Old version was here """
+        p_square = re.compile(
+            r"(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var>\S+_\d+)\s*\^2"
+        )
+        p_product = re.compile(
+            r"(?P<coeff>[-+]?\s*(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)\s*(?P<var_1>\S+_\d+)\s*\*\s*("
+            r"?P<var_2>\S+_\d+)"
+        )
         with open(filename) as f:
 
             line = ""
@@ -55,7 +59,7 @@ class BQM:
                 if squares:
                     # print(squares)
                     for match in squares:
-                        energy, name = match['coeff'], match['var']
+                        energy, name = match["coeff"], match["var"]
                         # m = BQM.p_ion.search(name)
                         # k = (m.group('specie'), int(m.group('pos')))
                         k = BQM.specie_pos(name)
@@ -63,7 +67,7 @@ class BQM:
                         if k in self.linear:
                             print(f"Another quadratic term for {name} was encountered")
                         else:
-                            self.linear[k] = float(energy.replace(' ', ''))
+                            self.linear[k] = float(energy.replace(" ", ""))
                             # print(k, float(energy.replace(' ', '')))
                             if name not in self.variables:
                                 self.variables.append(name)
@@ -74,7 +78,11 @@ class BQM:
                     # print(products)
                     for match in products:
                         # energy, name_1, name_2 = match
-                        energy, name_1, name_2 = match['coeff'], match['var_1'], match['var_2']
+                        energy, name_1, name_2 = (
+                            match["coeff"],
+                            match["var_1"],
+                            match["var_2"],
+                        )
                         # m1 = BQM.p_ion.search(name_1)
                         # m2 = BQM.p_ion.search(name_2)
                         #
@@ -104,9 +112,11 @@ class BQM:
                         # k = ((m1.group('specie'), int(m1.group('pos'))), (m2.group('specie'), int(m2.group('pos'))))
 
                         if k in self.quadratic:
-                            print(f"Another quadratic term for {name_1} and {name_2} was encountered")
+                            print(
+                                f"Another quadratic term for {name_1} and {name_2} was encountered"
+                            )
                         else:
-                            self.quadratic[k] = float(energy.replace(' ', ''))
+                            self.quadratic[k] = float(energy.replace(" ", ""))
                             # print(k, float(energy.replace(' ', '')))
                             if name_1 not in self.variables:
                                 self.variables.append(name_1)
@@ -123,7 +133,7 @@ class BQM:
             line_prev = line.strip()
             while not line.startswith("Bounds"):
 
-                if ':' in line:
+                if ":" in line:
                     self.constraints_str.append(line_prev)
                     line_prev = line.strip()
                 else:
@@ -151,28 +161,30 @@ class BQM:
     def parse_constraints(self):
         for constraint in self.constraints_str:
             dict_con = {}
-            if '<=' in constraint:
-                dict_con['type'] = 'LEQ'
-            elif '=' in constraint:
-                dict_con['type'] = 'EQ'
+            if "<=" in constraint:
+                dict_con["type"] = "LEQ"
+            elif "=" in constraint:
+                dict_con["type"] = "EQ"
             else:
                 print(f"Skipping constraint of unknown type {constraint}")
 
             m = BQM.p_rhs.search(constraint)
-            dict_con['rhs'] = int(m.group('int'))
+            dict_con["rhs"] = int(m.group("int"))
 
             # Getting the variables with coefficients
-            dict_con['lhs'] = []
+            dict_con["lhs"] = []
             for var in self.variables:
 
-                p_var = re.compile(r'(?P<coeff>\d+)?\s*' + var + r'\D')
+                p_var = re.compile(r"(?P<coeff>\d+)?\s*" + var + r"\D")
                 m = p_var.search(constraint)
 
                 if m:
-                    if m.group('coeff') is not None:
-                        dict_con['lhs'].append((int(m.group('coeff')), BQM.specie_pos(var)))
+                    if m.group("coeff") is not None:
+                        dict_con["lhs"].append(
+                            (int(m.group("coeff")), BQM.specie_pos(var))
+                        )
                     else:
-                        dict_con['lhs'].append((1, BQM.specie_pos(var)))
+                        dict_con["lhs"].append((1, BQM.specie_pos(var)))
 
             self.constraints_dict.append(dict_con)
 
@@ -215,50 +227,68 @@ class BQM:
             print(self.constraints_dict)
 
         for dict_con in self.constraints_dict:
-            if dict_con['type'] == 'LEQ':
+            if dict_con["type"] == "LEQ":
 
                 if DEBUG:
                     print("=====================", dict_con)
 
                 # I know, you'd forget
-                if dict_con['rhs'] != 1:
+                if dict_con["rhs"] != 1:
                     print("Encountered unsupported constraint! Treating RHS as 1")
 
-                N = len(dict_con['lhs'])
+                N = len(dict_con["lhs"])
                 for i in range(N):
                     for j in range(i + 1, N):
-                        pair = BQM.order(dict_con['lhs'][i][1], dict_con['lhs'][j][1])
+                        pair = BQM.order(dict_con["lhs"][i][1], dict_con["lhs"][j][1])
                         if pair in self.quadratic:
                             if DEBUG:
-                                print(pair, "added", leq_infinity, "to", self.quadratic[pair])
+                                print(
+                                    pair,
+                                    "added",
+                                    leq_infinity,
+                                    "to",
+                                    self.quadratic[pair],
+                                )
                             self.quadratic[pair] += leq_infinity
                         else:
                             self.quadratic[pair] = leq_infinity
                             if DEBUG:
                                 print("Adding new quadratic term for orbits", pair)
                                 print(pair, leq_infinity)
-            elif dict_con['type'] == 'EQ':
+            elif dict_con["type"] == "EQ":
                 if DEBUG:
                     print("=====================", dict_con)
-                N = len(dict_con['lhs'])
-                vars = dict_con['lhs']
+                N = len(dict_con["lhs"])
+                vars = dict_con["lhs"]
                 # Terms involving the rhs constant
-                self.offset += eq_inf * dict_con['rhs'] ** 2
+                self.offset += eq_inf * dict_con["rhs"] ** 2
                 if DEBUG:
                     print(f"Offset is increased by {eq_inf} * {dict_con['rhs']} ** 2")
                 for i in range(N):
                     if vars[i][1] in self.linear:
                         if DEBUG:
-                            print(vars[i][1],
-                                  f"added - 2 * {eq_inf} * {vars[i][0]} * {dict_con['rhs']} + {eq_inf} * {vars[i][0]} ** 2", "to",
-                                  self.linear[vars[i][1]])
-                        self.linear[vars[i][1]] = self.linear[vars[i][1]] - 2 * eq_inf * vars[i][0] * dict_con['rhs'] \
-                                                  + eq_inf * vars[i][0] ** 2
+                            print(
+                                vars[i][1],
+                                f"added - 2 * {eq_inf} * {vars[i][0]} * {dict_con['rhs']} + {eq_inf} * {vars[i][0]} ** 2",
+                                "to",
+                                self.linear[vars[i][1]],
+                            )
+                        self.linear[vars[i][1]] = (
+                            self.linear[vars[i][1]]
+                            - 2 * eq_inf * vars[i][0] * dict_con["rhs"]
+                            + eq_inf * vars[i][0] ** 2
+                        )
                     else:
 
-                        self.linear[vars[i][1]] = -2 * eq_inf * vars[i][0] * dict_con['rhs'] + eq_inf * vars[i][0] ** 2
+                        self.linear[vars[i][1]] = (
+                            -2 * eq_inf * vars[i][0] * dict_con["rhs"]
+                            + eq_inf * vars[i][0] ** 2
+                        )
                         if DEBUG:
-                            print(vars[i][1], f"added -2 * {eq_inf} * {vars[i][0]} * {dict_con['rhs']} + {eq_inf} * {vars[i][0]} ** 2")
+                            print(
+                                vars[i][1],
+                                f"added -2 * {eq_inf} * {vars[i][0]} * {dict_con['rhs']} + {eq_inf} * {vars[i][0]} ** 2",
+                            )
                             print("Adding a new linear term for placement", vars[i][1])
 
                 # Terms involving pairwise products
@@ -268,12 +298,23 @@ class BQM:
 
                         if pair in self.quadratic:
                             if DEBUG:
-                                print(pair, f"added 2 * {eq_inf} * {vars[i][0]} * {vars[j][0]}", "to", self.quadratic[pair])
-                            self.quadratic[pair] = self.quadratic[pair] + 2 * eq_inf * vars[i][0] * vars[j][0]
+                                print(
+                                    pair,
+                                    f"added 2 * {eq_inf} * {vars[i][0]} * {vars[j][0]}",
+                                    "to",
+                                    self.quadratic[pair],
+                                )
+                            self.quadratic[pair] = (
+                                self.quadratic[pair]
+                                + 2 * eq_inf * vars[i][0] * vars[j][0]
+                            )
                         else:
                             self.quadratic[pair] = 2 * eq_inf * vars[i][0] * vars[j][0]
                             if DEBUG:
-                                print(pair, f"added 2 * {eq_inf} * {vars[i][0]} * {vars[j][0]}")
+                                print(
+                                    pair,
+                                    f"added 2 * {eq_inf} * {vars[i][0]} * {vars[j][0]}",
+                                )
                                 print("Adding new quadratic term for placement", pair)
 
             else:
@@ -282,17 +323,17 @@ class BQM:
     @staticmethod
     def specie_pos(name):
         m = BQM.p_ion.search(name)
-        return m.group('specie'), int(m.group('pos'))
+        return m.group("specie"), int(m.group("pos"))
 
     @staticmethod
     def order(t1, t2):
-        '''
+        """
         tuples are of the form ('O', 2)
         order is based on position first, where lower is better
         and then on the species
 
         Return t1, t2 in the correct order
-        '''
+        """
 
         swap = False
 

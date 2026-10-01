@@ -9,7 +9,8 @@ from ipcsp.grids_and_symmetry import cubic
 import json
 from ipcsp.lp_to_bqm import BQM
 
-griddir = root_dir / 'data/grids/'
+griddir = root_dir / "data/grids/"
+
 
 class Allocate:
 
@@ -36,13 +37,13 @@ class Allocate:
         # ions = list(self.ions.keys())
 
         # Atoms
-        symbols = ''
+        symbols = ""
         positions = []
 
         for v in self.model.getVars():
             if v.Xn == 1:
                 # print(v.varName, end=' ')
-                t, o = v.varName.split(sep='_')
+                t, o = v.varName.split(sep="_")
 
                 # The element itself
                 positions.append(grid_positions[int(o)])
@@ -54,32 +55,44 @@ class Allocate:
                     symbols += t
 
         # print(symbols, positions)
-        return ase.Atoms(symbols=symbols, scaled_positions=positions,
-                         cell=[self.cell, self.cell, self.cell], pbc=True)
+        return ase.Atoms(
+            symbols=symbols,
+            scaled_positions=positions,
+            cell=[self.cell, self.cell, self.cell],
+            pbc=True,
+        )
 
-    def optimize_cube_symmetry_ase(self, group='1', PoolSolutions=1, TimeLimit=0, verbose=True):
-        '''
+    def optimize_cube_symmetry_ase(
+        self, group="1", PoolSolutions=1, TimeLimit=0, verbose=True
+    ):
+        """
         The function to generate an integer program and solve allocation problem using Gurobi.
         We rely on atomic simulation environment to handle allocations afterwards.
-        '''
+        """
 
-        N = self.grid ** 3  # number
+        N = self.grid**3  # number
         T = len(self.ions)  # different types
 
         # PATH hack
-        with open(os.path.join(".", griddir / 'CO{grid}G{group}.json'.format(grid=self.grid, group=group)), "r") as f:
+        with open(
+            os.path.join(
+                ".",
+                griddir / "CO{grid}G{group}.json".format(grid=self.grid, group=group),
+            ),
+            "r",
+        ) as f:
             orbits = json.load(f)
 
         orb_key = list(orbits.keys())
 
         if verbose:
-            #print("Orbits", orbits)
-            #print("Orbit keys", orb_key)
+            # print("Orbits", orbits)
+            # print("Orbit keys", orb_key)
 
-            #print("Orbits and their sizes. Similar to asymmetric units. Given as representative position : count.\n")
-            #for k in orb_key:
+            # print("Orbits and their sizes. Similar to asymmetric units. Given as representative position : count.\n")
+            # for k in orb_key:
             #    print(k, ':', len(orbits[k]) + 1, end='; ')
-            #print('\n')
+            # print('\n')
             print("Generating integer program\n")
 
         orb_size = [len(orbits[k]) + 1 for k in orb_key]
@@ -105,20 +118,26 @@ class Allocate:
         types = list(self.ions.keys())  # ordered list of elements
         counts = [self.ions[t] for t in types]
 
-        m = gb.Model('Ion allocation in {name} with symmetry {group}'.format(name=self.phase.name, group=group))
+        m = gb.Model(
+            "Ion allocation in {name} with symmetry {group}".format(
+                name=self.phase.name, group=group
+            )
+        )
         Vars = [[] for i in range(T)]
 
         # Create variables
         for i in range(O):  # iterate over all orbitals
             tmp_var = []
             for j in range(T):
-                Vars[j] += [m.addVar(vtype=gb.GRB.BINARY, name=str(types[j]) + '_' + orb_key[i])]
+                Vars[j] += [
+                    m.addVar(vtype=gb.GRB.BINARY, name=str(types[j]) + "_" + orb_key[i])
+                ]
                 tmp_var += [Vars[j][-1]]
             if i == 0:
-                m.addConstr(gb.LinExpr([1.0] * T, tmp_var) == 1, 'first_orbit_has_ion')
+                m.addConstr(gb.LinExpr([1.0] * T, tmp_var) == 1, "first_orbit_has_ion")
                 # m.addConstr(gb.LinExpr([1.0], [Vars[j][0]]) == 1, 'first_orbit_has_Ti')
             else:
-                m.addConstr(gb.LinExpr([1.0] * T, tmp_var) <= 1, f'one_per_orbit_{i}')
+                m.addConstr(gb.LinExpr([1.0] * T, tmp_var) <= 1, f"one_per_orbit_{i}")
 
         for j in range(T):
             tmp = gb.LinExpr()
@@ -137,21 +156,43 @@ class Allocate:
             # print(i1)
 
             for j1 in range(T):  # self-interaction
-                energy.add(Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i1]] * dist[i1, i1] * self.phase.charge[types[j1]] ** 2)
+                energy.add(
+                    Vars[j1][o_pos[i1]]
+                    * Vars[j1][o_pos[i1]]
+                    * dist[i1, i1]
+                    * self.phase.charge[types[j1]] ** 2
+                )
                 # energy.add(pt.Lattice.atom_charge[quantity[j1][0]]*pt.Lattice.atom_charge[quantity[j1][0]]*Vars[j1][i1]*Vars[j1][i1]*dist[i1,i1])
 
             for i2 in range(i1 + 1, N):
                 # print(i2)
                 for j1 in range(T):  # pairwise Coulumb
-                    energy.add(Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * 2 * dist[i1, i2] * self.phase.charge[
-                        types[j1]] ** 2)  # i1,i2 have the same type of ion
+                    energy.add(
+                        Vars[j1][o_pos[i1]]
+                        * Vars[j1][o_pos[i2]]
+                        * 2
+                        * dist[i1, i2]
+                        * self.phase.charge[types[j1]] ** 2
+                    )  # i1,i2 have the same type of ion
                     # old: energy.add(pt.Lattice.atom_charge[quantity[j1][0]]*pt.Lattice.atom_charge[quantity[j1][0]]*Vars[j1][i1]*Vars[j1][i2]*2*dist[i1,i2]) #i1,i2 have the same type of ion
 
                     for j2 in range(j1 + 1, T):
-                        energy.add(Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * 2 * dist[i1, i2] * self.phase.charge[
-                            types[j1]] * self.phase.charge[types[j2]])  # Two different types
-                        energy.add(Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * 2 * dist[i1, i2] * self.phase.charge[
-                            types[j1]] * self.phase.charge[types[j2]])  # Symmetrical case
+                        energy.add(
+                            Vars[j1][o_pos[i1]]
+                            * Vars[j2][o_pos[i2]]
+                            * 2
+                            * dist[i1, i2]
+                            * self.phase.charge[types[j1]]
+                            * self.phase.charge[types[j2]]
+                        )  # Two different types
+                        energy.add(
+                            Vars[j2][o_pos[i1]]
+                            * Vars[j1][o_pos[i2]]
+                            * 2
+                            * dist[i1, i2]
+                            * self.phase.charge[types[j1]]
+                            * self.phase.charge[types[j2]]
+                        )  # Symmetrical case
                         # size+=2
         # print(dist)
         del dist
@@ -176,7 +217,9 @@ class Allocate:
                         for i2 in range(i1, N):
                             # if i1==58 and i2 == 59:
                             #     print(buck[i1, i2])
-                            energy.add(Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2])
+                            energy.add(
+                                Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
+                            )
 
                 else:
 
@@ -188,8 +231,12 @@ class Allocate:
                         # energy.add(Vars[j1][i1]*Vars[j1][i1]*buck[i1, i1])
 
                         for i2 in range(i1 + 1, N):
-                            energy.add(Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2])
-                            energy.add(Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2])
+                            energy.add(
+                                Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2]
+                            )
+                            energy.add(
+                                Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
+                            )
 
                 del buck
 
@@ -210,7 +257,9 @@ class Allocate:
                         for i2 in range(i1, N):
                             # if i1==58 and i2 == 59:
                             #     print(buck[i1, i2])
-                            energy.add(Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2])
+                            energy.add(
+                                Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
+                            )
 
                 else:
 
@@ -222,8 +271,12 @@ class Allocate:
                         # energy.add(Vars[j1][i1]*Vars[j1][i1]*buck[i1, i1])
 
                         for i2 in range(i1 + 1, N):
-                            energy.add(Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2])
-                            energy.add(Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2])
+                            energy.add(
+                                Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2]
+                            )
+                            energy.add(
+                                Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
+                            )
 
                 del buck
 
@@ -260,7 +313,11 @@ class Allocate:
         #         print("Time limit reached. There is a solution")
         #     return None
 
-        if m.status == gb.GRB.OPTIMAL or m.status == gb.GRB.TIME_LIMIT or gb.GRB.INTERRUPTED:
+        if (
+            m.status == gb.GRB.OPTIMAL
+            or m.status == gb.GRB.TIME_LIMIT
+            or gb.GRB.INTERRUPTED
+        ):
             print("There are", m.SolCount, "solutions")
             res = []
             for i in range(m.SolCount):
@@ -269,10 +326,10 @@ class Allocate:
             print("\nThe optimal assignment is as follows:")
             for v in m.getVars():
                 if v.x == 1:
-                    print(v.varName, end=' ')
+                    print(v.varName, end=" ")
                 # print('%s %g' % (v.varName, v.x))
             print()
-            print('Minimal energy via optimizer: %g' % m.objVal)
+            print("Minimal energy via optimizer: %g" % m.objVal)
 
             if PoolSolutions > 1:
                 return res, runtime, m.objVal
@@ -281,8 +338,15 @@ class Allocate:
 
         return None
 
-    def optimize_qubo(self, group='1', at_dwave=False, num_reads=10,
-                             infinity_placement=100, infinity_orbit=100, annealing_time=200):
+    def optimize_qubo(
+        self,
+        group="1",
+        at_dwave=False,
+        num_reads=10,
+        infinity_placement=100,
+        infinity_orbit=100,
+        annealing_time=200,
+    ):
         """
         The function to optimise the structure on the quantum annealer
         infinity_orbit is the penalty for putting two ions on the orbit
@@ -295,10 +359,14 @@ class Allocate:
         from dwave.system.samplers import DWaveSampler
         from dwave.system.composites import EmbeddingComposite
 
-        print("Running integer programming optimisation to generate a model file with the required coefficients and "
-              "obtain the ground truth for the lowest energy allocation.")
+        print(
+            "Running integer programming optimisation to generate a model file with the required coefficients and "
+            "obtain the ground truth for the lowest energy allocation."
+        )
 
-        _, _, target_energy = self.optimize_cube_symmetry_ase(group=group, verbose=False)
+        _, _, target_energy = self.optimize_cube_symmetry_ase(
+            group=group, verbose=False
+        )
 
         print("Generating quadratic unconstrained binary problem from model.lp")
 
@@ -309,21 +377,31 @@ class Allocate:
         bqm_model.qubofy(infinity_placement, infinity_orbit)
 
         np.set_printoptions(suppress=True)
-        print('Five number summary of the interaction coefficients of the Ising hamiltonian:', np.percentile(
-            np.array(list(bqm_model.quadratic.values())), [0, 25, 50, 75, 100], method='midpoint'))
+        print(
+            "Five number summary of the interaction coefficients of the Ising hamiltonian:",
+            np.percentile(
+                np.array(list(bqm_model.quadratic.values())),
+                [0, 25, 50, 75, 100],
+                method="midpoint",
+            ),
+        )
 
         # print(bqm_model.linear, bqm_model.quadratic, bqm_model.offset)
         print("The offset is equal to", bqm_model.offset)
 
         # solver = neal.SimulatedAnnealingSampler()
-        bqm = dimod.BinaryQuadraticModel(bqm_model.linear, bqm_model.quadratic, bqm_model.offset, dimod.BINARY)
+        bqm = dimod.BinaryQuadraticModel(
+            bqm_model.linear, bqm_model.quadratic, bqm_model.offset, dimod.BINARY
+        )
 
         # bqm.fix_variable(('Sr', 7), 1)
         # bqm.fix_variable(('Ti', 0), 1)
         # print(list(bqm.variables))
         print("There are ", len(bqm.variables), "variables in the program")
         print("Running the Annealer")
-        print("A series of readouts with the energy, allocation to the lattice positions:")
+        print(
+            "A series of readouts with the energy, allocation to the lattice positions:"
+        )
 
         def stoic(datum):
             # counts = {'O': 0, 'Sr': 0, 'Ti': 0}
@@ -335,34 +413,43 @@ class Allocate:
                 else:
                     counts[k[0]] = v
             # print('===', datum[0])
-            return 'Counts: ' + str(counts)
+            return "Counts: " + str(counts)
 
         def simplify(datum):
-            sample = {'energy': 0, 'sample': [], 'num_occurrences': 0}
-            sample['energy'] = datum[1]
-            sample['num_occurrences'] = int(datum[2])
+            sample = {"energy": 0, "sample": [], "num_occurrences": 0}
+            sample["energy"] = datum[1]
+            sample["num_occurrences"] = int(datum[2])
 
             for k, v in datum[0].items():
                 if v == 1:
-                    sample['sample'].append(k)
+                    sample["sample"].append(k)
 
             # print('<', sample, '>')
             # print('===', datum[0])
             return sample
 
         if at_dwave:
-            embedding = dwave.embedding.chimera.find_clique_embedding(len(bqm.variables), 16)
-            print("The number of qubits: ", sum(len(chain) for chain in embedding.values()))
-            print("The longest chain: ", max(len(chain) for chain in embedding.values()))
+            embedding = dwave.embedding.chimera.find_clique_embedding(
+                len(bqm.variables), 16
+            )
+            print(
+                "The number of qubits: ",
+                sum(len(chain) for chain in embedding.values()),
+            )
+            print(
+                "The longest chain: ", max(len(chain) for chain in embedding.values())
+            )
             exit()
             sampler = EmbeddingComposite(DWaveSampler())
-            response = sampler.sample(bqm, num_reads=num_reads, annealing_time=annealing_time)
+            response = sampler.sample(
+                bqm, num_reads=num_reads, annealing_time=annealing_time
+            )
             min_energy = 1000000
             sol = None
             json_result = []
 
             i = 1
-            for datum in response.data(['sample', 'energy', 'num_occurrences']):
+            for datum in response.data(["sample", "energy", "num_occurrences"]):
                 # stoic only makes sense for P1 space group
                 # print(f"Readout {i}:", simplify(datum), stoic(datum))
                 print(f"Readout {i}:", simplify(datum))
@@ -374,14 +461,19 @@ class Allocate:
                     min_energy = datum.energy
             # print(type(sol))
 
-            with open('last_dwave.json', 'w') as f:
+            with open("last_dwave.json", "w") as f:
                 json.dump(json_result, f, indent=2)
 
             print("The best found allocation:\n(atom specie, position on a lattice)")
             for i in sol.sample.keys():
                 if sol.sample[i] == 1:
                     print(i)
-            print("The lowest found energy: ", sol.energy, "Occurrences: ", sol.num_occurrences)
+            print(
+                "The lowest found energy: ",
+                sol.energy,
+                "Occurrences: ",
+                sol.num_occurrences,
+            )
             return sol.energy, target_energy
         else:
             solver = neal.SimulatedAnnealingSampler()
@@ -390,7 +482,7 @@ class Allocate:
             sample = 0
 
             i = 1
-            for datum in response.data(['sample', 'energy', 'num_occurrences']):
+            for datum in response.data(["sample", "energy", "num_occurrences"]):
                 # stoic only makes sense for P1 space group
                 # print(f"Readout {i}:", simplify(datum), stoic(datum))
                 print(f"Readout {i}:", simplify(datum))
@@ -405,5 +497,10 @@ class Allocate:
             for i in sample.sample.keys():
                 if sample.sample[i] == 1:
                     print(i)
-            print("The lowest found energy: ", sample.energy, "Occurrences: ", sample.num_occurrences)
+            print(
+                "The lowest found energy: ",
+                sample.energy,
+                "Occurrences: ",
+                sample.num_occurrences,
+            )
             return sample.energy, target_energy

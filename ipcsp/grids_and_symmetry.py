@@ -4,13 +4,15 @@ Space groups are stored in G{space group number}.txt files in filedir given
 by their operations. CO{grid}G{group number}.json files contain information about the
 positions that belong to the same orbit of a given group and must contain the same atoms.
 """
+
 import os.path
 
 import numpy as np
 import json
 from ipcsp import root_dir
 
-filedir = root_dir / 'data/grids/'
+filedir = root_dir / "data/grids/"
+
 
 def generate_orthorhombic(ions_on_sides):
     """
@@ -26,7 +28,7 @@ def generate_orthorhombic(ions_on_sides):
     # print("The total number of points in the cell is ", len(self.ions))
 
     row = 0
-    for (i, j, k) in np.ndindex(ions_on_sides[0], ions_on_sides[1], ions_on_sides[2]):
+    for i, j, k in np.ndindex(ions_on_sides[0], ions_on_sides[1], ions_on_sides[2]):
         pos[row,] = np.array([i * step[0], j * step[1], k * step[2]])
         row = row + 1
     return pos
@@ -40,18 +42,18 @@ def cubic(ions_on_side):
 
 
 def readGroup(number):
-    '''
+    """
     Returns the list of augmented matrices of a space group with given number.
-    '''
+    """
     result = []
-    with open(filedir / 'G{number}.txt'.format(number=number)) as f:
+    with open(filedir / "G{number}.txt".format(number=number)) as f:
         for line in f.readlines():
-            line = line.rstrip('\n')
-            line = line.split(sep=',')
+            line = line.rstrip("\n")
+            line = line.split(sep=",")
             array = []
             for elem in line:
                 if "/" in elem:
-                    a, b = elem.split(sep='/')
+                    a, b = elem.split(sep="/")
                     # print(elem, ':', int(a)/int(b))
                     array.append(int(a) / int(b))
                 else:
@@ -82,19 +84,19 @@ def generate_cubic_orbits(ions_on_side, group):
                     equiv_point[i] = 1 + equiv_point[i]
 
             for idx, p in enumerate(points):
-                if (np.linalg.norm(p - equiv_point) < 0.0001):
+                if np.linalg.norm(p - equiv_point) < 0.0001:
                     if idx in remaining_points:
                         remaining_points.remove(idx)
                         orbits[point].append(idx)
                     break
-    print(ions_on_side, ':', len(orbits))
+    print(ions_on_side, ":", len(orbits))
     return orbits
 
 
 if __name__ == "__main__":
 
     positions = cubic(16)
-    with open('./data/grids/CO16G230.json', "r") as f:
+    with open("./data/grids/CO16G230.json", "r") as f:
         orbits = json.load(f)
 
     orb_key = list(orbits.keys())
@@ -127,20 +129,22 @@ if __name__ == "__main__":
     # group = '218'
     # group = '227'
     # group = '230'
-    group = '215'
+    group = "215"
     for size in range(2, 13):
-        with open(filedir + 'CO{size}G{group}.json'.format(size=size, group=group), "w") as write_file:
+        with open(
+            filedir + "CO{size}G{group}.json".format(size=size, group=group), "w"
+        ) as write_file:
             json.dump(generate_cubic_orbits(size, group), write_file)
     exit()
 
-    print(generate_cubic_orbits(6, '221'))
+    print(generate_cubic_orbits(6, "221"))
     exit()
     # size_range = range(2,17)
     # ouput_directory = filedir
     # for size in size_range:
     #     np.savetxt(filedir+f'C{size}.txt', cubic(size))
     # readGroup('221')
-    matrices = readGroup('221')
+    matrices = readGroup("221")
     d = cubic(3)
     # m = np.array([ [1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]])
     # m = np.array([ 0,-1,0,0, 1,0,0,0, 0,0,1,0, 0,0,0,1])
@@ -148,5 +152,5 @@ if __name__ == "__main__":
     print(matrices[3])
 
     for pos in d[0:5]:
-        print(np.append(pos, 1), '->', (matrices[3] @ np.append(pos, 1))[0:3])
+        print(np.append(pos, 1), "->", (matrices[3] @ np.append(pos, 1))[0:3])
         # print(d@m)
