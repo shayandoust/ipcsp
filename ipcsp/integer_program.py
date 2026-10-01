@@ -57,7 +57,7 @@ class Allocate:
         return ase.Atoms(symbols=symbols, scaled_positions=positions,
                          cell=[self.cell, self.cell, self.cell], pbc=True)
 
-    def optimize_cube_symmetry_ase(self, group='1', PoolSolutions=1, TimeLimit=0, verbose=True):
+    def optimize_cube_symmetry_ase(self, group='1', PoolSolutions=1, TimeLimit=0, verbose=True, prefix=None, threads=None):
         '''
         The function to generate an integer program and solve allocation problem using Gurobi.
         We rely on atomic simulation environment to handle allocations afterwards.
@@ -125,6 +125,19 @@ class Allocate:
             for i in range(O):
                 tmp.add(Vars[j][i], orb_size[i])
             m.addConstr(tmp == counts[j], f"number_of_ions_type_{j}")
+
+        if prefix:
+            # Fix the variables for the first len(prefix) 3D coordinates based on prefix.
+            # prefix is a list of symbols (including 'V' for vacancy).
+            for site_idx, sym in enumerate(prefix):
+                if site_idx >= N:
+                    break
+                orb_idx = o_pos[site_idx]
+                for j, t in enumerate(types):
+                    if t == sym:
+                        m.addConstr(Vars[j][orb_idx] == 1, f"prefix_{site_idx}_{j}")
+                    else:
+                        m.addConstr(Vars[j][orb_idx] == 0, f"prefix_{site_idx}_{j}")
 
         print("Variables and constraints were generated")
         energy = gb.QuadExpr()
@@ -242,6 +255,9 @@ class Allocate:
             m.params.PoolSolutions = PoolSolutions
             m.params.PoolSearchMode = 2
 
+        if threads is not None:
+            m.params.Threads = threads
+
         m.Params.NodefileStart = 1
 
         # mp = m.presolve()
@@ -260,16 +276,21 @@ class Allocate:
         #         print("Time limit reached. There is a solution")
         #     return None
 
-        if m.status == gb.GRB.OPTIMAL or m.status == gb.GRB.TIME_LIMIT or gb.GRB.INTERRUPTED:
+        if m.status == gb.GRB.OPTIMAL or m.status == gb.GRB.TIME_LIMIT or m.status == gb.GRB.INTERRUPTED:
             print("There are", m.SolCount, "solutions")
+            if m.SolCount == 0:
+                return None
             res = []
             for i in range(m.SolCount):
                 res.append(self.solution_to_Atoms(i, orbits))
 
             print("\nThe optimal assignment is as follows:")
             for v in m.getVars():
-                if v.x == 1:
-                    print(v.varName, end=' ')
+                try:
+                    if v.Xn == 1:
+                        print(v.varName, end=' ')
+                except AttributeError:
+                    pass
                 # print('%s %g' % (v.varName, v.x))
             print()
             print('Minimal energy via optimizer: %g' % m.objVal)

@@ -20,6 +20,18 @@ from time import time
 import os
 import shutil
 
+# Ensure GULP and GULP_LIB are detected
+if not os.environ.get('GULP_LIB'):
+    for p in ['/home/shayan/GitClones/MC-EMMA/gulp-6.4/Libraries', '/home/shayan/Downloads/gulp-6.4/Libraries']:
+        if os.path.exists(p):
+            os.environ['GULP_LIB'] = p
+            break
+if '/home/shayan/GitClones/MC-EMMA/gulp-6.4/Src' not in os.environ.get('PATH', ''):
+    for p in ['/home/shayan/GitClones/MC-EMMA/gulp-6.4/Src', '/home/shayan/Downloads/gulp-6.4/Src']:
+        if os.path.exists(p):
+            os.environ['PATH'] = p + ':' + os.environ.get('PATH', '')
+            break
+
 from tabulate import tabulate
 import pandas as pd
 
@@ -29,6 +41,9 @@ from ipcsp.matrix_generator import Phase
 from ase.calculators.gulp import GULP
 import ase.io
 from copy import deepcopy
+
+RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "results"))
+TYPICAL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "typical_results"))
 
 '''
  The settings dictionary lists the predictions to run and parameters of the configuration spaces for
@@ -111,9 +126,8 @@ settings = {
 
 
 def process_results(lib, results, ions_count, test_name, printing=False):
-    # path hack here
-    os.mkdir(os.path.join("..", "results", test_name))
-    calc = GULP(keywords='single', library=os.path.join(".", lib))
+    os.makedirs(os.path.join(RESULTS_DIR, test_name), exist_ok=True)
+    calc = GULP(keywords='single', library=str(lib))
 
     # stash the allocations for future
     results_ip = deepcopy(results)
@@ -128,13 +142,16 @@ def process_results(lib, results, ions_count, test_name, printing=False):
     best_val = 0
     best_idx = 0
     # ase.io.write("best_ipcsp.vasp", results[0])
-    # ase.io.write(os.path.join("..", "results", test_name, "ip_optimum.vasp"), results[0])
+    # ase.io.write(os.path.join(RESULTS_DIR, test_name, "ip_optimum.vasp"), results[0])
     print("Processing and locally optimising solutions from the integer program\n")
     for idx, cryst in enumerate(results):
         if len(cryst.arrays['positions']) == N_atoms:
             cryst.calc = calc
-            init[idx] = cryst.get_potential_energy()
-            # print("Initial:", init[idx])
+            try:
+                init[idx] = cryst.get_potential_energy()
+            except Exception as e:
+                print(f"Initial GULP evaluation failed for solution {idx+1}: {e}")
+                init[idx] = -1.0
         else:
             print("GULP received a bad solution. Gurobi's implementation of pooling occasionally provides solutions "
                   "that do not satisfy constraints. It should be corrected in future versions of the solver.")
@@ -149,37 +166,26 @@ def process_results(lib, results, ions_count, test_name, printing=False):
                 try:
                     opt.run(fmax=0.05)
                     final[idx] = cryst.get_potential_energy()
-                except ValueError:
+                except Exception:
                     print("One of the relaxations failed using initial energy instead")
                     final[idx] = init[idx]
 
                 if final[idx] < best_val:
                     best_idx = idx
                     best_val = final[idx]
-                # print("Final:", final[idx])
-                # input()
-            # print("Energy initial: ", cryst.get_potential_energy(), " final: ", final)
 
     count = 1
-    with open(os.path.join("..", "results", test_name, "energies.txt"), "w+") as f:
+    with open(os.path.join(RESULTS_DIR, test_name, "energies.txt"), "w+") as f:
         for i in range(len(results)):
             if final[i] != 0:
                 print(f"Solution{count}: ", "Energy initial: ", init[i], " final: ", final[i])
                 print(f"Solution{count}: ", "Energy initial: ", init[i], " final: ", final[i], file=f)
-                # if len(results) > 1:
-                #    # ase.io.write(f'solution{count}.vasp', results[i])
-                ase.io.write(os.path.join("..", "results", test_name, f'solution{count}_lattice.vasp'), results_ip[i])
-                ase.io.write(os.path.join("..", "results", test_name, f'solution{count}_minimised.vasp'), results[i])
+                ase.io.write(os.path.join(RESULTS_DIR, test_name, f'solution{count}_lattice.vasp'), results_ip[i])
+                ase.io.write(os.path.join(RESULTS_DIR, test_name, f'solution{count}_minimised.vasp'), results[i])
                 count += 1
 
     cryst = results[best_idx]
     print("The lowest found energy is ", best_val, "eV")
-    # print("The energy per ion is ", best_val/N_atoms, "eV")
-    # ase.io.write(os.path.join("..", "results", test_name, "minimal_energy_structure.vasp"), cryst)
-    # print("Rerunning GULP, so that gulp.gout would have optimised structure")
-    # opt = calc.get_optimizer(cryst)
-    # opt.run(fmax=0.05)
-    # cryst.get_potential_energy()
     if printing:
         print("Paused, the files can be copied")
         input()
@@ -189,24 +195,74 @@ def process_results(lib, results, ions_count, test_name, printing=False):
 
 def get_cif_energies(filename, library, format='cif'):
     filedir = root_dir / 'structures/'
-    # Path hacks again
     cryst = ase.io.read(os.path.join(".", filedir / filename), format=format, parallel=False)
-    calc = GULP(keywords='conp', library=library)
+    calc = GULP(keywords='conp', library=str(library))
     calc.set(keywords='opti conjugate conp diff comp c6')
     opt = calc.get_optimizer(cryst)
-    opt.run(fmax=0.05)
-    energy = cryst.get_potential_energy()
+    try:
+        opt.run(fmax=0.05)
+        energy = cryst.get_potential_energy()
+    except Exception as e:
+        print(f"GULP calculation failed for {filename}: {e}")
+        energy = -1.0
 
     print("The energy of", filename, "is equal to", energy, "eV")
 
     return energy
 
 
+def print_comparison_with_typical(df_summary):
+    typical_summary_path = os.path.join(TYPICAL_DIR, "summary.txt")
+    if not os.path.exists(typical_summary_path):
+        return
+
+    # Parse typical_results summary table
+    typical_energies = {}
+    with open(typical_summary_path, 'r') as f:
+        for line in f:
+            parts = [p.strip() for p in line.split('|') if p.strip()]
+            if len(parts) >= 6 and parts[0] not in ['Test name', ':-'] and not parts[0].startswith('---'):
+                try:
+                    typical_energies[parts[0]] = float(parts[3])
+                except ValueError:
+                    pass
+
+    comparison_rows = []
+    for _, row in df_summary.iterrows():
+        name = row['name']
+        found_E = row['best_E']
+        expected_E = row['expected_E']
+        typ_E = typical_energies.get(name, None)
+        diff = (found_E - typ_E) if (typ_E is not None and found_E is not None) else None
+        diff_str = f"{diff:+.4f}" if diff is not None else "N/A"
+        status = "MATCH" if (diff is not None and abs(diff) < 0.05) else ("CLOSE" if diff is not None and abs(diff) < 1.0 else "DIFFER")
+        comparison_rows.append({
+            'Test': name,
+            'Grid g': row['grid'],
+            'Group': row['group'],
+            'Found Energy (eV)': f"{found_E:.4f}" if found_E is not None else "N/A",
+            'Typical Energy (eV)': f"{typ_E:.4f}" if typ_E is not None else "N/A",
+            'Target CIF (eV)': f"{expected_E:.4f}" if expected_E is not None else "N/A",
+            'Diff vs Typical (eV)': diff_str,
+            'Status': status
+        })
+
+    comp_df = pd.DataFrame(comparison_rows)
+    print("\n\n" + "=" * 95)
+    print("               COMPARISON: FOUND ENERGIES vs TYPICAL RESULTS")
+    print("=" * 95)
+    print(tabulate(comp_df, headers="keys", tablefmt='github', showindex=False))
+    print("=" * 95 + "\n")
+    
+    with open(os.path.join(RESULTS_DIR, "comparison.txt"), "w+") as f:
+        print("Comparison: Found Energies vs Typical Results\n", file=f)
+        print(tabulate(comp_df, headers="keys", tablefmt='github', showindex=False), file=f)
+
+
 def benchmark():
     # Preparing a folder with results
-
-    shutil.rmtree(os.path.join(".", "results"), ignore_errors=True)
-    os.mkdir(os.path.join(".", "results"))
+    shutil.rmtree(RESULTS_DIR, ignore_errors=True)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
     '''
 
@@ -377,12 +433,14 @@ def benchmark():
                                             'group': settings[f'Ca3Al2Si3O12_{i}']['group'], 'best_E': best_energy,
                                             'expected_E': energy, 'time': runtime}])], ignore_index=True)
 
-    with open(os.path.join(".", "results", "summary.txt"), "w+") as f:
+    with open(os.path.join(RESULTS_DIR, "summary.txt"), "w+") as f:
         print("Non-heuristic optimisation using Gurobi with subsequent local minimisation (test equivalent to Table 1 "
               "of the paper):", file=f)
         print(tabulate(df_summary, headers=["Test name", "Discretisation g", "Space group",
                                             "Best energy (eV)", "Target energy (eV)", "IP solution time (sec)"],
                        tablefmt='github', showindex=False), file=f)
+
+    print_comparison_with_typical(df_summary)
 
     '''
 
@@ -492,7 +550,7 @@ def benchmark():
         print('It took ', end='')
         print(" %s seconds" % (end - start))
 
-    with open(os.path.join(".", "results", "summary.txt"), "a") as f:
+    with open(os.path.join(RESULTS_DIR, "summary.txt"), "a") as f:
         print("\n\n\n\n\n Quantum annealing for the periodic lattice atom allocation.\n", file=f)
         print(tabulate(df_summary, headers=["Test name", "D-Wave", "Best energy (eV)", "Target energy (eV)"],
                        tablefmt='github', showindex=False), file=f)
