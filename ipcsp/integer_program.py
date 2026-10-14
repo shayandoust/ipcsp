@@ -1,6 +1,7 @@
 import gurobipy as gb
 import numpy as np
 import os
+import time as _time
 
 from ipcsp import root_dir
 from ipcsp.matrix_generator import Phase, get_Ewald, get_Buck, get_garnet
@@ -25,6 +26,9 @@ class Allocate:
         self.cell = cell_size
 
         self.model = None
+
+        # Timing / size statistics of the last optimize_cube_symmetry_ase call
+        self.last_stats = None
 
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
@@ -70,11 +74,19 @@ class Allocate:
         verbose=True,
         prefix=None,
         threads=None,
+        write_lp=True,
+        Cutoff=None,
+        callback=None,
     ):
         """
         The function to generate an integer program and solve allocation problem using Gurobi.
         We rely on atomic simulation environment to handle allocations afterwards.
+
+        write_lp -- write the model to model.lp (needed by the quantum/QUBO pipeline).
+          Set to False when many models are built concurrently.
+        After the call, self.last_stats holds build/solve times and model sizes.
         """
+        t_build_start = _time.perf_counter()
 
         N = self.grid**3  # number
         T = len(self.ions)  # different types
@@ -317,14 +329,36 @@ class Allocate:
         if threads is not None:
             m.params.Threads = threads
 
+        if Cutoff is not None:
+            m.params.Cutoff = Cutoff
+
         m.Params.NodefileStart = 1
 
         # mp = m.presolve()
-        print("Writing model file")
-        m.write("model.lp")
+        if write_lp:
+            print("Writing model file")
+            m.write("model.lp")
 
-        m.optimize()
+        m.update()
+        build_time = _time.perf_counter() - t_build_start
+
+        if callback is not None:
+            m.optimize(callback)
+        else:
+            m.optimize()
         runtime = m.Runtime
+
+        self.last_stats = {
+            "build_time": build_time,
+            "solve_time": runtime,
+            "status": m.status,
+            "num_vars": m.NumVars,
+            "num_constrs": m.NumConstrs,
+            "num_qterms": m.NumQNZs,
+            "sol_count": m.SolCount,
+            "obj": m.objVal if m.SolCount > 0 else None,
+            "nodes": m.NodeCount,
+        }
 
         if m.status == gb.GRB.CUTOFF:
             print("Cutoff! No solution with negative energy.")

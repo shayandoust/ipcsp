@@ -32,8 +32,9 @@ def parse_typical_energies(test_name):
 def test_parallel_benchmarks():
     """
     Evaluates benchmark structures with full-scale unit cells matching typical_results,
-    running independent Gurobi IP instances on p processors via Algorithm 1 decomposition
-    and LPT scheduling, and compares the energies found to typical_results.
+    running independent Gurobi IP instances on p processors via Parikh decomposition
+    (Algorithm 2 for balanced Parikh vectors, Algorithm 1 for other cases) and LPT scheduling,
+    and compares the energies found to typical_results.
     """
     print("\n" + "=" * 90)
     print(

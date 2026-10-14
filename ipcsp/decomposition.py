@@ -179,8 +179,81 @@ def algo2_decomposition(symbols, initial_counts, p, k=1, c_factor=2.0):
     return result
 
 
+
+def is_balanced(counts):
+    """
+    Check if a Parikh vector is balanced, i.e., in the form of (n, ..., n) with n > 0.
+    counts can be a list, tuple, dict of counts, or numpy array.
+    """
+    if isinstance(counts, dict):
+        counts = list(counts.values())
+    if not counts:
+        return False
+    first = counts[0]
+    return first > 0 and all(c == first for c in counts)
+
+
+is_balanced_parikh_vector = is_balanced
+
+
+def decompose(
+    symbols,
+    initial_counts,
+    p,
+    R_target=1.5,
+    max_tasks=None,
+    k=None,
+    c_factor=2.0,
+):
+    """
+    Decompose a Parikh world:
+    Uses Algorithm 2 for balanced Parikh vectors (i.e., in the form of (n, ..., n)),
+    and Algorithm 1 for all other cases.
+    """
+    if is_balanced(initial_counts):
+        if k is None:
+            non_zero = sum(1 for c in initial_counts if c > 0)
+            if max_tasks is not None and p > 1 and max_tasks >= p:
+                k = max(1, int(math.floor(math.log(max_tasks) / math.log(p))))
+            elif p > 1 and non_zero > p:
+                k = max(1, int(math.ceil(math.log(non_zero) / math.log(p))))
+            else:
+                k = 1
+        tasks = algo2_decomposition(symbols, initial_counts, p, k=k, c_factor=c_factor)
+        # If Algo 2 returned fallback without splitting (1 task) and more tasks were requested/possible:
+        if len(tasks) <= 1 and multinomial(initial_counts) > 1 and p > 1:
+            tasks = algo1_decomposition(
+                symbols,
+                initial_counts,
+                p,
+                R_target=R_target,
+                max_tasks=max_tasks,
+            )
+        return tasks
+    else:
+        return algo1_decomposition(
+            symbols,
+            initial_counts,
+            p,
+            R_target=R_target,
+            max_tasks=max_tasks,
+        )
+
+
 if __name__ == "__main__":
-    tasks = algo1_decomposition(["O", "Sr", "Ti", "V"], [3, 1, 1, 59], 4, 1.1)
-    print("Number of tasks:", len(tasks))
-    processors, loads = lpt_schedule(tasks, 4)
-    print("Loads:", loads)
+    # Unbalanced Parikh vector: uses Algorithm 1
+    unbalanced_counts = [3, 1, 1, 59]
+    print(f"Counts {unbalanced_counts} balanced? {is_balanced(unbalanced_counts)}")
+    tasks1 = decompose(["O", "Sr", "Ti", "V"], unbalanced_counts, 4, R_target=1.1)
+    print("Number of tasks (Algorithm 1):", len(tasks1))
+    processors1, loads1 = lpt_schedule(tasks1, 4)
+    print("Loads:", loads1)
+
+    # Balanced Parikh vector: uses Algorithm 2
+    balanced_counts = [4, 4]
+    print(f"Counts {balanced_counts} balanced? {is_balanced(balanced_counts)}")
+    tasks2 = decompose(["A", "B"], balanced_counts, 4)
+    print("Number of tasks (Algorithm 2):", len(tasks2))
+    processors2, loads2 = lpt_schedule(tasks2, 4)
+    print("Loads:", loads2)
+
