@@ -85,6 +85,13 @@ def run_baseline(name, tc, time_limit, threads):
         "num_constrs": st["num_constrs"],
         "num_qterms": st["num_qterms"],
         "status": st["status"],
+        "nodes": st.get("nodes", 0.0),
+        "work": st.get("work", 0.0),
+        "iter_count": st.get("iter_count", 0.0),
+        "time_to_opt_s": st.get("time_to_opt_s", st["solve_time"]),
+        "wall_to_opt_s": st.get("wall_to_opt_s", wall),
+        "nodes_to_opt": st.get("nodes_to_opt", st.get("nodes", 0.0)),
+        "work_to_opt": st.get("work_to_opt", st.get("work", 0.0)),
     }
 
 
@@ -103,9 +110,12 @@ def main():
     ap.add_argument("--baseline-threads", type=int, default=None,
                     help="Gurobi threads for the single IP (default: matches p, "
                          "so single IP with p threads vs. p independent Gurobis)")
+    ap.add_argument("--output-dir", type=str, default=RESULTS_DIR,
+                    help="directory to save benchmark CSV results")
     args = ap.parse_args()
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    results_dir = args.output_dir
+    os.makedirs(results_dir, exist_ok=True)
     summary_rows, proc_rows, task_rows, single_ip_rows = [], [], [], []
     baseline_cache = {}
 
@@ -115,21 +125,28 @@ def main():
         df_tasks = pd.DataFrame(task_rows)
         df_single = pd.DataFrame(single_ip_rows)
 
-        df_sum.to_csv(os.path.join(RESULTS_DIR, "summary.csv"), index=False)
-        df_procs.to_csv(os.path.join(RESULTS_DIR, "processors.csv"), index=False)
-        df_tasks.to_csv(os.path.join(RESULTS_DIR, "tasks.csv"), index=False)
-        df_single.to_csv(os.path.join(RESULTS_DIR, "original_single_ip.csv"), index=False)
+        df_sum.to_csv(os.path.join(results_dir, "summary.csv"), index=False)
+        df_procs.to_csv(os.path.join(results_dir, "processors.csv"), index=False)
+        df_tasks.to_csv(os.path.join(results_dir, "tasks.csv"), index=False)
+        df_single.to_csv(os.path.join(results_dir, "original_single_ip.csv"), index=False)
 
         # Solve-only views (pure solver time with build phase excluded)
         if not df_sum.empty:
             solve_cols = [
                 "test", "grid", "group", "p", "baseline_threads",
                 "original_single_ip_solve_time_s",
+                "original_single_ip_solve_to_opt_s",
                 "original_single_ip_vars", "original_single_ip_constrs", "original_single_ip_energy",
                 "total_configurations_sci", "num_subIPs",
                 "avg_subIP_solve_s", "max_subIP_solve_s",
                 "parallel_time_s", "sum_subIP_solve_s",
-                "speedup_solve", "decomp_energy", "energy_match",
+                "speedup_solve",
+                "decomp_solve_to_opt_s",
+                "speedup_find_opt_solve",
+                "first_opt_processor",
+                "first_opt_task_id",
+                "work_reduction_ratio_solve",
+                "decomp_energy", "energy_match",
                 "subIP_vars", "subIP_constrs_avg", "load_imbalance_max_over_avg"
             ]
             solve_only_df = df_sum[[c for c in solve_cols if c in df_sum.columns]].rename(
@@ -141,18 +158,28 @@ def main():
                     "speedup_solve": "solve_speedup"
                 }
             )
-            solve_only_df.to_csv(os.path.join(RESULTS_DIR, "solve_only_comparison.csv"), index=False)
+            solve_only_df.to_csv(os.path.join(results_dir, "solve_only_comparison.csv"), index=False)
 
         if not df_procs.empty:
-            proc_cols = ["test", "p", "processor", "num_IPs", "IP_ratio", "configurations_sci", "config_ratio", "solve_time_s", "is_bottleneck"]
+            proc_cols = [
+                "test", "p", "processor", "num_IPs", "IP_ratio",
+                "configurations_sci", "config_ratio", "solve_time_s",
+                "nodes", "work", "iter_count", "found_global_opt",
+                "solve_time_to_opt_s", "is_bottleneck"
+            ]
             df_procs[[c for c in proc_cols if c in df_procs.columns]].to_csv(
-                os.path.join(RESULTS_DIR, "solve_only_processors.csv"), index=False
+                os.path.join(results_dir, "solve_only_processors.csv"), index=False
             )
 
         if not df_tasks.empty:
-            task_cols = ["test", "p", "task_id", "processor", "prefix", "configurations_sci", "config_ratio", "solve_time_s", "status", "energy", "num_vars", "num_constrs", "nodes"]
+            task_cols = [
+                "test", "p", "task_id", "processor", "prefix",
+                "configurations_sci", "config_ratio", "solve_time_s",
+                "status", "energy", "found_global_opt", "solve_time_to_opt_s",
+                "nodes", "work", "iter_count", "num_vars", "num_constrs"
+            ]
             df_tasks[[c for c in task_cols if c in df_tasks.columns]].to_csv(
-                os.path.join(RESULTS_DIR, "solve_only_tasks.csv"), index=False
+                os.path.join(results_dir, "solve_only_tasks.csv"), index=False
             )
 
     for name in args.tests:
@@ -180,6 +207,13 @@ def main():
                     "original_single_ip_vars": base["num_vars"],
                     "original_single_ip_constrs": base["num_constrs"],
                     "original_single_ip_qterms": base["num_qterms"],
+                    "original_single_ip_solve_time_to_opt_s": base.get("time_to_opt_s"),
+                    "original_single_ip_wall_time_to_opt_s": base.get("wall_to_opt_s"),
+                    "original_single_ip_nodes_to_opt": base.get("nodes_to_opt"),
+                    "original_single_ip_work_to_opt": base.get("work_to_opt"),
+                    "original_single_ip_nodes": base.get("nodes"),
+                    "original_single_ip_work": base.get("work"),
+                    "original_single_ip_iters": base.get("iter_count"),
                 })
                 save_csvs()
             else:
@@ -221,6 +255,10 @@ def main():
                 "original_single_ip_vars": base["num_vars"],
                 "original_single_ip_constrs": base["num_constrs"],
                 "original_single_ip_qterms": base["num_qterms"],
+                "original_single_ip_solve_time_to_opt_s": base.get("time_to_opt_s"),
+                "original_single_ip_wall_time_to_opt_s": base.get("wall_to_opt_s"),
+                "original_single_ip_nodes_to_opt": base.get("nodes_to_opt"),
+                "original_single_ip_work_to_opt": base.get("work_to_opt"),
                 # Backward-compatibility alias keys
                 "baseline_solve_s": base["solve_time"],
                 "baseline_build_s": base["build_time"],
@@ -229,6 +267,13 @@ def main():
                 "baseline_vars": base["num_vars"],
                 "baseline_constrs": base["num_constrs"],
                 "baseline_qterms": base["num_qterms"],
+                "baseline_solve_to_opt_s": base.get("time_to_opt_s"),
+                "baseline_wall_to_opt_s": base.get("wall_to_opt_s"),
+                "baseline_nodes_to_opt": base.get("nodes_to_opt"),
+                "baseline_work_to_opt": base.get("work_to_opt"),
+                "baseline_nodes": base.get("nodes"),
+                "baseline_work": base.get("work"),
+                "baseline_iters": base.get("iter_count"),
                 "algorithm": st.get("algorithm", "Algorithm 1"),
                 # Decomposition metrics
                 "decomp_energy": best_ip if best_ip != float("inf") else None,
@@ -248,8 +293,23 @@ def main():
                 "speedup_solve": (base["solve_time"] / par_time) if par_time > 0 else float("nan"),
                 "speedup_wall": (base["wall_time"] / st["parallel_wall_time"])
                                 if st["parallel_wall_time"] > 0 else float("nan"),
+                # Time / effort to FIRST HIT OPT (Discovery phase)
+                "decomp_solve_to_opt_s": st.get("decomp_solve_time_to_opt_s"),
+                "decomp_wall_to_opt_s": st.get("decomp_wall_time_to_opt_s"),
+                "decomp_nodes_to_opt": st.get("decomp_nodes_to_opt"),
+                "decomp_work_to_opt": st.get("decomp_work_to_opt"),
+                "first_opt_task_id": st.get("first_opt_task_id"),
+                "first_opt_processor": st.get("first_opt_processor"),
+                "speedup_find_opt_solve": ratio(base.get("time_to_opt_s", 0.0), st.get("decomp_solve_time_to_opt_s")),
+                "speedup_find_opt_wall": ratio(base.get("wall_to_opt_s", 0.0), st.get("decomp_wall_time_to_opt_s")),
+                # Total effort / work reduction across all sub-IPs
+                "sum_subIP_nodes": st.get("sum_subIP_nodes"),
+                "sum_subIP_work": st.get("sum_subIP_work"),
+                "sum_subIP_iters": st.get("sum_subIP_iters"),
+                "work_reduction_ratio_solve": ratio(base["solve_time"], sum(solve_times)),
+                "work_reduction_ratio_work": ratio(base.get("work", 0.0), st.get("sum_subIP_work")),
                 "load_imbalance_max_over_avg": ratio(max(proc_loads), avg_load) if avg_load else float("nan"),
-                # sub-IP model size (same variables for all; constraints grow with prefix)
+                # sub-IP model size
                 "subIP_vars": tasks[0].get("num_vars") if tasks else None,
                 "subIP_constrs_avg": (sum(t.get("num_constrs", 0) for t in tasks) / len(tasks))
                                      if tasks else None,
@@ -268,7 +328,14 @@ def main():
                     "solve_time_s": ps["solve_time"],
                     "build_time_s": ps["build_time"],
                     "wall_time_s": ps["wall_time"],
+                    "nodes": ps.get("nodes"),
+                    "work": ps.get("work"),
+                    "iter_count": ps.get("iter_count"),
                     "best_energy": ps["best_energy"] if ps["best_energy"] != float("inf") else None,
+                    "found_global_opt": ps.get("found_global_opt", False),
+                    "solve_time_to_opt_s": ps.get("solve_time_to_best_s"),
+                    "nodes_to_opt": ps.get("nodes_to_best"),
+                    "work_to_opt": ps.get("work_to_best"),
                     "is_bottleneck": ps["solve_time"] == par_time,
                 })
 
@@ -288,10 +355,16 @@ def main():
                     "status": t.get("status"),
                     "pruned_by_peer": t.get("pruned_by_peer", False),
                     "energy": t.get("obj"),
+                    "found_global_opt": t.get("found_global_opt", False),
+                    "solve_time_to_opt_s": t.get("time_to_opt_s"),
+                    "nodes_to_opt": t.get("nodes_to_opt"),
+                    "work_to_opt": t.get("work_to_opt"),
                     "num_vars": t.get("num_vars"),
                     "num_constrs": t.get("num_constrs"),
                     "num_qterms": t.get("num_qterms"),
                     "nodes": t.get("nodes"),
+                    "work": t.get("work"),
+                    "iter_count": t.get("iter_count"),
                 })
 
             save_csvs()  # keep partial results if the run is interrupted
@@ -302,32 +375,41 @@ def main():
     save_csvs()
 
     # ---------- Console report ----------
-    print("\n\n" + "=" * 110)
-    print("  SINGLE IP vs DECOMPOSITION")
-    print("=" * 110)
-    view = summary[[
+    print("\n\n" + "=" * 115)
+    print("  1. SINGLE IP vs DECOMPOSITION (Proof of Optimality / Makespan)")
+    print("=" * 115)
+    view1 = summary[[
         "test", "p", "baseline_threads", "baseline_energy", "decomp_energy", "energy_match",
-        "baseline_vars", "baseline_constrs", "baseline_qterms",
-        "baseline_build_s", "baseline_solve_s",
-        "num_subIPs", "num_feasible_subIPs", "avg_subIP_build_s",
-        "avg_subIP_solve_s", "max_subIP_solve_s", "parallel_time_s",
-        "parallel_wall_s", "speedup_solve",
+        "baseline_solve_s", "avg_subIP_solve_s", "max_subIP_solve_s",
+        "parallel_time_s", "speedup_solve", "work_reduction_ratio_solve",
     ]]
-    print(tabulate(view, headers="keys", tablefmt="github", showindex=False,
+    print(tabulate(view1, headers="keys", tablefmt="github", showindex=False,
                    floatfmt=".4f"))
 
-    print("\n" + "=" * 110)
-    print("  SPLIT OVER PROCESSORS")
-    print("=" * 110)
+    print("\n\n" + "=" * 115)
+    print("  2. TIME & EFFORT TO FIRST HIT OPT (Discovery Phase: Comparison to MC-EMMA)")
+    print("=" * 115)
+    view2 = summary[[
+        "test", "p", "baseline_solve_to_opt_s", "decomp_solve_to_opt_s",
+        "speedup_find_opt_solve", "first_opt_processor", "first_opt_task_id",
+        "baseline_nodes_to_opt", "decomp_nodes_to_opt",
+        "baseline_work_to_opt", "decomp_work_to_opt",
+    ]]
+    print(tabulate(view2, headers="keys", tablefmt="github", showindex=False,
+                   floatfmt=".4f"))
+
+    print("\n\n" + "=" * 115)
+    print("  3. SPLIT OVER PROCESSORS")
+    print("=" * 115)
     pv = procs.copy()
     pv["IPs"] = pv.apply(lambda r: f"{r.num_IPs} ({100 * r.IP_ratio:.1f}%)", axis=1)
     pv["configs"] = pv.apply(
         lambda r: f"{r.configurations_sci} ({100 * r.config_ratio:.2f}%)", axis=1)
     print(tabulate(pv[["test", "p", "processor", "IPs", "configs", "solve_time_s",
-                       "build_time_s", "wall_time_s", "is_bottleneck"]],
+                       "build_time_s", "wall_time_s", "found_global_opt", "solve_time_to_opt_s", "is_bottleneck"]],
                    headers="keys", tablefmt="github", showindex=False, floatfmt=".4f"))
 
-    print(f"\nCSV files written to: {RESULTS_DIR}")
+    print(f"\nCSV files written to: {results_dir}")
 
 
 if __name__ == "__main__":

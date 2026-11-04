@@ -66,25 +66,10 @@ class Allocate:
             pbc=True,
         )
 
-    def optimize_cube_symmetry_ase(
-        self,
-        group="1",
-        PoolSolutions=1,
-        TimeLimit=0,
-        verbose=True,
-        prefix=None,
-        threads=None,
-        write_lp=True,
-        Cutoff=None,
-        callback=None,
-    ):
+    def build_base_model(self, group="1", write_lp=False, verbose=False):
         """
-        The function to generate an integer program and solve allocation problem using Gurobi.
-        We rely on atomic simulation environment to handle allocations afterwards.
-
-        write_lp -- write the model to model.lp (needed by the quantum/QUBO pipeline).
-          Set to False when many models are built concurrently.
-        After the call, self.last_stats holds build/solve times and model sizes.
+        Builds the base Gurobi model (variables, stoichiometry constraints, and quadratic objective)
+        once without optimizing. Caches the model and variable structures on self.
         """
         t_build_start = _time.perf_counter()
 
@@ -104,13 +89,6 @@ class Allocate:
         orb_key = list(orbits.keys())
 
         if verbose:
-            # print("Orbits", orbits)
-            # print("Orbit keys", orb_key)
-
-            # print("Orbits and their sizes. Similar to asymmetric units. Given as representative position : count.\n")
-            # for k in orb_key:
-            #    print(k, ':', len(orbits[k]) + 1, end='; ')
-            # print('\n')
             print("Generating integer program\n")
 
         orb_size = [len(orbits[k]) + 1 for k in orb_key]
@@ -119,18 +97,9 @@ class Allocate:
         o_pos = []
         for i in range(N):
             for orb, pos in orbits.items():
-                if int(orb) == i:
+                if int(orb) == i or i in pos:
                     o_pos.append(orb_key.index(orb))
                     break
-
-                if i in pos:
-                    o_pos.append(orb_key.index(orb))
-                    break
-
-        # print(orbits)
-        # print(orb_key)
-        # print(o_pos)
-        # print(len(o_pos))
 
         O = len(orbits)
         types = list(self.ions.keys())  # ordered list of elements
@@ -141,19 +110,17 @@ class Allocate:
                 name=self.phase.name, group=group
             )
         )
-        Vars = [[] for i in range(T)]
+        Vars = [[] for _ in range(T)]
 
         # Create variables
         for i in range(O):  # iterate over all orbitals
             tmp_var = []
             for j in range(T):
-                Vars[j] += [
-                    m.addVar(vtype=gb.GRB.BINARY, name=str(types[j]) + "_" + orb_key[i])
-                ]
-                tmp_var += [Vars[j][-1]]
+                v = m.addVar(vtype=gb.GRB.BINARY, name=str(types[j]) + "_" + orb_key[i])
+                Vars[j].append(v)
+                tmp_var.append(v)
             if i == 0:
                 m.addConstr(gb.LinExpr([1.0] * T, tmp_var) == 1, "first_orbit_has_ion")
-                # m.addConstr(gb.LinExpr([1.0], [Vars[j][0]]) == 1, 'first_orbit_has_Ti')
             else:
                 m.addConstr(gb.LinExpr([1.0] * T, tmp_var) <= 1, f"one_per_orbit_{i}")
 
@@ -163,29 +130,14 @@ class Allocate:
                 tmp.add(Vars[j][i], orb_size[i])
             m.addConstr(tmp == counts[j], f"number_of_ions_type_{j}")
 
-        if prefix:
-            # Fix the variables for the first len(prefix) 3D coordinates based on prefix.
-            # prefix is a list of symbols (including 'V' for vacancy).
-            for site_idx, sym in enumerate(prefix):
-                if site_idx >= N:
-                    break
-                orb_idx = o_pos[site_idx]
-                for j, t in enumerate(types):
-                    if t == sym:
-                        m.addConstr(Vars[j][orb_idx] == 1, f"prefix_{site_idx}_{j}")
-                    else:
-                        m.addConstr(Vars[j][orb_idx] == 0, f"prefix_{site_idx}_{j}")
-
-        print("Variables and constraints were generated")
+        if verbose:
+            print("Variables and constraints were generated")
         energy = gb.QuadExpr()
 
         # Coulomb interaction
         dist = get_Ewald(self.grid, self.cell)
-        # np.savetxt('testEwaldNew.out', dist, delimiter=',')
 
         for i1 in range(N):
-            # print(i1)
-
             for j1 in range(T):  # self-interaction
                 energy.add(
                     Vars[j1][o_pos[i1]]
@@ -193,10 +145,8 @@ class Allocate:
                     * dist[i1, i1]
                     * self.phase.charge[types[j1]] ** 2
                 )
-                # energy.add(pt.Lattice.atom_charge[quantity[j1][0]]*pt.Lattice.atom_charge[quantity[j1][0]]*Vars[j1][i1]*Vars[j1][i1]*dist[i1,i1])
 
             for i2 in range(i1 + 1, N):
-                # print(i2)
                 for j1 in range(T):  # pairwise Coulumb
                     energy.add(
                         Vars[j1][o_pos[i1]]
@@ -204,8 +154,7 @@ class Allocate:
                         * 2
                         * dist[i1, i2]
                         * self.phase.charge[types[j1]] ** 2
-                    )  # i1,i2 have the same type of ion
-                    # old: energy.add(pt.Lattice.atom_charge[quantity[j1][0]]*pt.Lattice.atom_charge[quantity[j1][0]]*Vars[j1][i1]*Vars[j1][i2]*2*dist[i1,i2]) #i1,i2 have the same type of ion
+                    )
 
                     for j2 in range(j1 + 1, T):
                         energy.add(
@@ -215,7 +164,7 @@ class Allocate:
                             * dist[i1, i2]
                             * self.phase.charge[types[j1]]
                             * self.phase.charge[types[j2]]
-                        )  # Two different types
+                        )
                         energy.add(
                             Vars[j2][o_pos[i1]]
                             * Vars[j1][o_pos[i2]]
@@ -223,44 +172,30 @@ class Allocate:
                             * dist[i1, i2]
                             * self.phase.charge[types[j1]]
                             * self.phase.charge[types[j2]]
-                        )  # Symmetrical case
-                        # size+=2
-        # print(dist)
+                        )
         del dist
-        print("Ewald sum contribution was added to the objective function")
+        if verbose:
+            print("Ewald sum contribution was added to the objective function")
 
         # HACK for the garnet
         if self.phase.garnet:
-            print("Generating Morse and Leonard parts")
-            # Morse and Leonard parts
+            if verbose:
+                print("Generating Morse and Leonard parts")
             for ion_pair in self.phase.gar_param:
-
                 if not ((ion_pair[0] in types) and (ion_pair[1] in types)):
                     continue
-
-                # I am keeping the old name, too lazy to rename
                 buck = get_garnet(ion_pair, self.grid, self.cell, self.phase)
-
                 if ion_pair[0] == ion_pair[1]:
                     j1 = types.index(ion_pair[0])
-
                     for i1 in range(N):
                         for i2 in range(i1, N):
-                            # if i1==58 and i2 == 59:
-                            #     print(buck[i1, i2])
                             energy.add(
                                 Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
                             )
-
                 else:
-
                     j1 = types.index(ion_pair[0])
                     j2 = types.index(ion_pair[1])
-
                     for i1 in range(N):
-                        # TODO: Two different ions at the same position is impossible, should we put MAX here?
-                        # energy.add(Vars[j1][i1]*Vars[j1][i1]*buck[i1, i1])
-
                         for i2 in range(i1 + 1, N):
                             energy.add(
                                 Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2]
@@ -268,39 +203,24 @@ class Allocate:
                             energy.add(
                                 Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
                             )
-
                 del buck
-
         else:
-
             # Buckingham Part
             for ion_pair in self.phase.buck:
-
                 if not ((ion_pair[0] in types) and (ion_pair[1] in types)):
                     continue
-
                 buck = get_Buck(ion_pair, self.grid, self.cell, self.phase)
-
                 if ion_pair[0] == ion_pair[1]:
                     j1 = types.index(ion_pair[0])
-
                     for i1 in range(N):
                         for i2 in range(i1, N):
-                            # if i1==58 and i2 == 59:
-                            #     print(buck[i1, i2])
                             energy.add(
                                 Vars[j1][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
                             )
-
                 else:
-
                     j1 = types.index(ion_pair[0])
                     j2 = types.index(ion_pair[1])
-
                     for i1 in range(N):
-                        # TODO: Two different ions at the same position is impossible, should we put MAX here?
-                        # energy.add(Vars[j1][i1]*Vars[j1][i1]*buck[i1, i1])
-
                         for i2 in range(i1 + 1, N):
                             energy.add(
                                 Vars[j1][o_pos[i1]] * Vars[j2][o_pos[i2]] * buck[i1, i2]
@@ -308,45 +228,180 @@ class Allocate:
                             energy.add(
                                 Vars[j2][o_pos[i1]] * Vars[j1][o_pos[i2]] * buck[i1, i2]
                             )
-
                 del buck
 
-        print("Objective function was generated")
+        if verbose:
+            print("Objective function was generated")
 
         m.setObjective(energy, gb.GRB.MINIMIZE)
+        m.update()
+        if write_lp:
+            if verbose:
+                print("Writing model file")
+            m.write("model.lp")
+
+        build_time = _time.perf_counter() - t_build_start
+
         self.model = m
+        self._Vars = Vars
+        self._types = types
+        self._orb_key = orb_key
+        self._orb_size = orb_size
+        self._orbits = orbits
+        self._o_pos = o_pos
+        self._built_group = str(group)
+        self._base_build_time = build_time
+        return m, Vars, types, orb_key
+
+    def optimize_cube_symmetry_ase(
+        self,
+        group="1",
+        PoolSolutions=1,
+        TimeLimit=0,
+        verbose=True,
+        prefix=None,
+        threads=None,
+        write_lp=False,
+        Cutoff=None,
+        callback=None,
+        reuse_model=True,
+    ):
+        """
+        The function to generate an integer program and solve allocation problem using Gurobi.
+        We rely on atomic simulation environment to handle allocations afterwards.
+
+        write_lp -- write the model to model.lp (needed by the quantum/QUBO pipeline).
+          Default: False to avoid concurrent disk writes during parallel benchmarks.
+        reuse_model -- reuse previously built base model on self and solve via LB/UB bound mutation.
+        After the call, self.last_stats holds build/solve times and model sizes.
+        """
+        first_build = False
+        if (
+            not reuse_model
+            or self.model is None
+            or getattr(self, "_built_group", None) != str(group)
+        ):
+            self.build_base_model(group=group, write_lp=write_lp, verbose=verbose)
+            first_build = True
+
+        t_task_start = _time.perf_counter()
+        m = self.model
+        Vars = self._Vars
+        types = self._types
+        orbits = self._orbits
+        orb_key = self._orb_key
+        T = len(types)
+        O = len(orb_key)
+
+        # Reset solver state from previous task while keeping quadratic matrix in memory
+        m.reset(0)
+
+        # Reset all variable bounds to binary [0, 1]
+        for j in range(T):
+            for i in range(O):
+                Vars[j][i].LB = 0.0
+                Vars[j][i].UB = 1.0
+
+        # Apply prefix via variable bounds (no extra linear constraints added!)
+        if prefix:
+            for orb_i, symbol in enumerate(prefix):
+                if orb_i >= O:
+                    break
+                if symbol == "V":
+                    for j in range(T):
+                        Vars[j][orb_i].UB = 0.0  # Fix all ions at orbit orb_i to 0
+                else:
+                    for j, t_name in enumerate(types):
+                        if t_name == symbol:
+                            Vars[j][orb_i].LB = 1.0  # Fix chosen ion at orb_i to 1
+                        else:
+                            Vars[j][orb_i].UB = 0.0  # Fix other ions at orb_i to 0
 
         if TimeLimit > 0:
             m.params.TimeLimit = TimeLimit
+        else:
+            m.params.TimeLimit = gb.GRB.INFINITY
 
-        if not verbose:
-            m.params.OutputFlag = 0
+        m.params.OutputFlag = 1 if verbose else 0
 
         if PoolSolutions > 1:
             m.params.PoolSolutions = PoolSolutions
             m.params.PoolSearchMode = 2
+        else:
+            m.params.PoolSolutions = 1
+            m.params.PoolSearchMode = 0
 
         if threads is not None:
             m.params.Threads = threads
 
         if Cutoff is not None:
             m.params.Cutoff = Cutoff
+        else:
+            m.params.Cutoff = gb.GRB.INFINITY
 
         m.Params.NodefileStart = 1
 
-        # mp = m.presolve()
-        if write_lp:
-            print("Writing model file")
-            m.write("model.lp")
-
         m.update()
-        build_time = _time.perf_counter() - t_build_start
+        if write_lp:
+            if verbose:
+                print("Writing model file")
+            m.write("model.lp")
+        task_prep_time = _time.perf_counter() - t_task_start
+        build_time = (self._base_build_time if first_build else 0.0) + task_prep_time
 
-        if callback is not None:
-            m.optimize(callback)
-        else:
-            m.optimize()
+        incumbent_records = []
+        t0_solve = _time.perf_counter()
+
+        def _internal_cb(model, where):
+            if where == gb.GRB.Callback.MIPSOL:
+                try:
+                    obj = model.cbGet(gb.GRB.Callback.MIPSOL_OBJ)
+                    rt = model.cbGet(gb.GRB.Callback.RUNTIME)
+                    nodes = model.cbGet(gb.GRB.Callback.MIPSOL_NODCNT)
+                    try:
+                        work = model.cbGet(gb.GRB.Callback.WORK)
+                    except Exception:
+                        work = 0.0
+                    wall = _time.perf_counter() - t0_solve
+                    incumbent_records.append({
+                        "obj": obj,
+                        "runtime": rt,
+                        "nodes": nodes,
+                        "work": work,
+                        "wall": wall,
+                    })
+                except Exception:
+                    pass
+            if callback is not None:
+                callback(model, where)
+
+        m.optimize(_internal_cb)
         runtime = m.Runtime
+        node_count = getattr(m, "NodeCount", 0.0)
+        work_units = getattr(m, "Work", 0.0)
+        iter_count = getattr(m, "IterCount", 0.0)
+
+        time_to_opt = None
+        wall_to_opt = None
+        nodes_to_opt = None
+        work_to_opt = None
+
+        if m.SolCount > 0:
+            final_obj = m.objVal
+            matching_inc = next(
+                (r for r in incumbent_records if abs(r["obj"] - final_obj) <= 1e-4 or r["obj"] <= final_obj + 1e-4),
+                None
+            )
+            if matching_inc is not None:
+                time_to_opt = matching_inc["runtime"]
+                wall_to_opt = matching_inc["wall"]
+                nodes_to_opt = matching_inc["nodes"]
+                work_to_opt = matching_inc["work"]
+            else:
+                time_to_opt = runtime
+                wall_to_opt = _time.perf_counter() - t0_solve
+                nodes_to_opt = node_count
+                work_to_opt = work_units
 
         self.last_stats = {
             "build_time": build_time,
@@ -357,40 +412,44 @@ class Allocate:
             "num_qterms": m.NumQNZs,
             "sol_count": m.SolCount,
             "obj": m.objVal if m.SolCount > 0 else None,
-            "nodes": m.NodeCount,
+            "nodes": node_count,
+            "work": work_units,
+            "iter_count": iter_count,
+            "time_to_opt_s": time_to_opt,
+            "wall_to_opt_s": wall_to_opt,
+            "nodes_to_opt": nodes_to_opt,
+            "work_to_opt": work_to_opt,
+            "incumbents": incumbent_records,
         }
 
         if m.status == gb.GRB.CUTOFF:
-            print("Cutoff! No solution with negative energy.")
+            if verbose:
+                print("Cutoff! No solution beating cutoff.")
             return None
-
-        # if m.status == gb.GRB.TIME_LIMIT:
-        #     if m.objVal < 0:
-        #         print("Time limit reached. There is a solution")
-        #     return None
 
         if (
             m.status == gb.GRB.OPTIMAL
             or m.status == gb.GRB.TIME_LIMIT
             or m.status == gb.GRB.INTERRUPTED
         ):
-            print("There are", m.SolCount, "solutions")
+            if verbose:
+                print("There are", m.SolCount, "solutions")
             if m.SolCount == 0:
                 return None
             res = []
             for i in range(m.SolCount):
                 res.append(self.solution_to_Atoms(i, orbits))
 
-            print("\nThe optimal assignment is as follows:")
-            for v in m.getVars():
-                try:
-                    if v.Xn == 1:
-                        print(v.varName, end=" ")
-                except AttributeError:
-                    pass
-                # print('%s %g' % (v.varName, v.x))
-            print()
-            print("Minimal energy via optimizer: %g" % m.objVal)
+            if verbose:
+                print("\nThe optimal assignment is as follows:")
+                for v in m.getVars():
+                    try:
+                        if v.Xn == 1:
+                            print(v.varName, end=" ")
+                    except AttributeError:
+                        pass
+                print()
+                print("Minimal energy via optimizer: %g" % m.objVal)
 
             if PoolSolutions > 1:
                 return res, runtime, m.objVal

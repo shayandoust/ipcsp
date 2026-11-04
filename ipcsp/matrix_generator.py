@@ -14,6 +14,7 @@ Multiprocessing and numba was used to accelerate the computations
 
 import numpy as np
 import os
+from pathlib import Path
 
 from ipcsp import root_dir
 from ipcsp.grids_and_symmetry import cubic
@@ -281,8 +282,11 @@ def generate_Ewald(size, ouput_directory):
     print("Its min is ", dist.min())
     # print(dist)
 
-    with open(ouput_directory / filename, "wb") as outfile:
+    out_dir = Path(ouput_directory)
+    tmp_outfile = out_dir / f".tmp_{os.getpid()}_{int(time() * 1e6)}_{filename}"
+    with open(tmp_outfile, "wb") as outfile:
         np.save(outfile, dist)
+    os.replace(tmp_outfile, out_dir / filename)
 
 
 @njit(cache=True)
@@ -516,8 +520,11 @@ def generate_Buck(
         # print(filename)
         # print(ion_pair, '\n', np.around(result, decimals=2))
 
-        with open(output_directory / filename, "wb") as outfile:
+        out_dir = Path(output_directory)
+        tmp_outfile = out_dir / f".tmp_{os.getpid()}_{int(time() * 1e6)}_{filename}"
+        with open(tmp_outfile, "wb") as outfile:
             np.save(outfile, result)
+        os.replace(tmp_outfile, out_dir / filename)
 
 
 def generate_garnet(
@@ -578,8 +585,11 @@ def generate_garnet(
             + "_{cell_size}.npy".format(cell_size=cell_size)
         )
 
-        with open(output_directory / filename, "wb") as outfile:
+        out_dir = Path(output_directory)
+        tmp_outfile = out_dir / f".tmp_{os.getpid()}_{int(time() * 1e6)}_{filename}"
+        with open(tmp_outfile, "wb") as outfile:
             np.save(outfile, result)
+        os.replace(tmp_outfile, out_dir / filename)
 
 
 def get_Buck(ion_pair, grid_size, cell_size, phase):
@@ -593,13 +603,14 @@ def get_Buck(ion_pair, grid_size, cell_size, phase):
         + "_{cell_size}.npy".format(cell_size=cell_size)
     )
 
+    filepath = phase.location / filename
     try:
-        with open(phase.location / filename, "rb") as f:
-            return np.load(f)
-    except IOError:
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True)
+    except (IOError, ValueError, EOFError):
         generate_Buck(grid_size, cell_size, phase, phase.location, multicpu=True)
-        with open(phase.location / filename, "rb") as f:
-            return np.load(f)
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True)
 
 
 def get_garnet(ion_pair, grid_size, cell_size, phase):
@@ -613,13 +624,14 @@ def get_garnet(ion_pair, grid_size, cell_size, phase):
         + "_{cell_size}.npy".format(cell_size=cell_size)
     )
 
+    filepath = phase.location / filename
     try:
-        with open(phase.location / filename, "rb") as f:
-            return np.load(f)
-    except IOError:
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True)
+    except (IOError, ValueError, EOFError):
         generate_garnet(grid_size, cell_size, phase, phase.location, multicpu=True)
-        with open(phase.location / filename, "rb") as f:
-            return np.load(f)
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True)
 
 
 def get_Ewald(grid_size, cell_size):
@@ -627,15 +639,16 @@ def get_Ewald(grid_size, cell_size):
     Generating Ewald matrix. It is done only once when the code is downloaded
     """
     filename = "C{grid_size}.npy".format(grid_size=grid_size)
+    filepath = filedir / "Ewald" / filename
 
     try:
-        with open(filedir / "Ewald" / filename, "rb") as f:
-            return np.load(f) * (grid_size / cell_size)
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True) * (grid_size / cell_size)
 
-    except IOError:
+    except (IOError, ValueError, EOFError):
         generate_Ewald(grid_size, filedir / "Ewald/")
-        with open(filedir / "Ewald" / filename, "rb") as f:
-            return np.load(f) * (grid_size / cell_size)
+        with open(filepath, "rb") as f:
+            return np.load(f, allow_pickle=True) * (grid_size / cell_size)
 
 
 if __name__ == "__main__":

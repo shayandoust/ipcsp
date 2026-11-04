@@ -1,5 +1,7 @@
+import heapq
 import math
 from collections import defaultdict
+from functools import lru_cache
 import numpy as np
 
 
@@ -179,7 +181,6 @@ def algo2_decomposition(symbols, initial_counts, p, k=1, c_factor=2.0):
     return result
 
 
-
 def is_balanced(counts):
     """
     Check if a Parikh vector is balanced, i.e., in the form of (n, ..., n) with n > 0.
@@ -240,6 +241,110 @@ def decompose(
         )
 
 
+def build_orbit_dp(orb_sizes, ion_counts):
+    """
+    Exact DP counting valid orbit completions from orbit i with remaining_counts.
+    Respects Wyckoff multiplicities (orb_sizes[i]) and stoichiometry:
+      - Orbit 0 must contain an ion (cannot be vacancy 'V' in CSP formulation).
+      - Orbit i > 0 can be vacant ('V') or hold an ion t if orb_sizes[i] <= rem_counts[t].
+    """
+    types = list(ion_counts.keys())
+    O = len(orb_sizes)
+
+    @lru_cache(maxsize=None)
+    def count_completions(orb_idx, rem_counts):
+        if orb_idx == O:
+            return 1 if all(c == 0 for c in rem_counts) else 0
+        # Prune if remaining capacity cannot satisfy remaining ions
+        rem_cap = sum(orb_sizes[orb_idx:])
+        if sum(rem_counts) > rem_cap:
+            return 0
+
+        s = orb_sizes[orb_idx]
+        total = 0
+        # Branch 1: Vacancy 'V' (allowed on orb_idx > 0; orb_idx == 0 must have an ion)
+        if orb_idx > 0:
+            total += count_completions(orb_idx + 1, rem_counts)
+        # Branch 2: Place ion t_idx if orb_size[orb_idx] <= rem_counts[t_idx]
+        for idx, c in enumerate(rem_counts):
+            if c >= s:
+                nxt = list(rem_counts)
+                nxt[idx] -= s
+                total += count_completions(orb_idx + 1, tuple(nxt))
+        return total
+
+    return types, count_completions
+
+
+def decompose_orbits_balanced(
+    orb_sizes, ion_counts, p, oversample_factor=4, max_tasks=None
+):
+    """
+    Splits the largest prefix (using a max-heap) until:
+      1. No single task exceeds (1 / p) of the total configuration space, OR
+      2. len(tasks) >= task_cap (when max_tasks is explicitly specified).
+    Eliminates 100% of infeasible sub-IPs before Gurobi is ever called.
+
+    Returns:
+      final_tasks: list of (prefix_tuple, config_count)
+      total_configs: integer total valid orbit completions
+    """
+    types, count_completions = build_orbit_dp(orb_sizes, ion_counts)
+    init_rem = tuple(ion_counts[t] for t in types)
+    total_configs = count_completions(0, init_rem)
+    if total_configs == 0:
+        return [], 0
+
+    heap = [(-total_configs, 0, (), init_rem)]
+    final_tasks = []
+    # Target maximum configurations per task: <= total_configs / p
+    max_allowed_configs = total_configs / p
+    # task_cap is an optional hard upper bound if max_tasks is provided
+    task_cap = max_tasks
+
+    while heap:
+        neg_cnt, orb_idx, prefix, rem = heapq.heappop(heap)
+        cnt = -neg_cnt
+
+        # Stop splitting this node if:
+        # 1. We reached the last orbit, OR
+        # 2. It is already small enough (<= max_allowed_configs or cnt == 1) AND we have at least min(p, total_configs) tasks, OR
+        # 3. An explicit max_tasks limit was reached.
+        if (
+            orb_idx == len(orb_sizes)
+            or (
+                cnt <= max(1, max_allowed_configs)
+                and len(heap) + len(final_tasks) + 1 >= min(p, total_configs)
+            )
+            or (task_cap is not None and len(heap) + len(final_tasks) >= task_cap)
+        ):
+            final_tasks.append((prefix, cnt))
+            continue
+
+        s = orb_sizes[orb_idx]
+        children = []
+        if orb_idx > 0:
+            c_v = count_completions(orb_idx + 1, rem)
+            if c_v > 0:
+                children.append((-c_v, orb_idx + 1, prefix + ("V",), rem))
+
+        for idx, t_name in enumerate(types):
+            if rem[idx] >= s:
+                nxt = list(rem)
+                nxt[idx] -= s
+                nxt_t = tuple(nxt)
+                c_t = count_completions(orb_idx + 1, nxt_t)
+                if c_t > 0:
+                    children.append((-c_t, orb_idx + 1, prefix + (t_name,), nxt_t))
+
+        if not children:
+            continue
+        for ch in children:
+            heapq.heappush(heap, ch)
+
+    return final_tasks, total_configs
+
+
 if __name__ == "__main__":
     # Unbalanced Parikh vector: uses Algorithm 1
     unbalanced_counts = [3, 1, 1, 59]
@@ -256,4 +361,3 @@ if __name__ == "__main__":
     print("Number of tasks (Algorithm 2):", len(tasks2))
     processors2, loads2 = lpt_schedule(tasks2, 4)
     print("Loads:", loads2)
-
