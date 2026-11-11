@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 
 from ipcsp import root_dir
-from ipcsp.grids_and_symmetry import cubic
+from ipcsp.grids_and_symmetry import cubic, fcc
 import math
 from numba import jit, njit
 from time import sleep, time
@@ -47,6 +47,8 @@ class Phase:
         self.location = self.filedir / phase_name
 
         self.garnet = False  # HACK:garnet case is treated separately
+        self.fcc_alloy = False
+        self.fcc_morse = {}
 
         with open(self.filedir / phase_name / "radii.lib", "r") as f:
             for line in f.readlines():
@@ -76,6 +78,40 @@ class Phase:
         except IOError:
             print("No closest distances between the ions were provided")
             print("Relying on Shannon radii only")
+
+        if (self.filedir / phase_name / "morse.lib").exists():
+            charge_lines = False
+            morse_lines = False
+            with open(self.filedir / phase_name / "morse.lib", "r") as f:
+                for line in f.readlines():
+                    if line.startswith("#"):
+                        continue
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if "species" in line:
+                        charge_lines = True
+                        morse_lines = False
+                        continue
+                    if "morse" in line:
+                        morse_lines = True
+                        charge_lines = False
+                        continue
+                    parts = line.split()
+                    if charge_lines:
+                        self.charge[parts[0]] = float(parts[-1])
+                    elif morse_lines:
+                        pair = (min(parts[0], parts[2]), max(parts[0], parts[2]))
+                        self.fcc_morse[pair] = {
+                            "De": float(parts[4]),
+                            "a0": float(parts[5]),
+                            "r0": float(parts[6]),
+                            "lo": float(parts[7]),
+                            "hi": float(parts[8]),
+                        }
+            self.fcc_alloy = True
+            print("FCC Alloy Morse potentials loaded:", list(self.fcc_morse.keys()))
+            return
 
         try:
 
@@ -632,6 +668,54 @@ def get_garnet(ion_pair, grid_size, cell_size, phase):
         generate_garnet(grid_size, cell_size, phase, phase.location, multicpu=True)
         with open(filepath, "rb") as f:
             return np.load(f, allow_pickle=True)
+
+
+def generate_fcc_alloy(grid_size, cell_size, phase, output_directory):
+    """
+    Generates sparse periodic pair interactions on a grid_size x grid_size x grid_size
+    FCC supercell (N = 4 * grid_size**3 sites) within the Morse cutoff radius.
+    Saves (rows, cols, V_AA, V_CC, V_AC) to FCC{grid_size}_{phase.name}_{cell_size}.npz.
+    """
+    from scipy.spatial import cKDTree
+
+    pos = fcc(grid_size)
+    cutoff = max(p["hi"] for p in phase.fcc_morse.values())
+    tree = cKDTree(pos * cell_size, boxsize=cell_size)
+    pairs = tree.query_pairs(r=cutoff, output_type="ndarray")
+    rows = pairs[:, 0].astype(np.int32)
+    cols = pairs[:, 1].astype(np.int32)
+    diff = pos[rows] - pos[cols]
+    diff -= np.round(diff)
+    r = np.linalg.norm(diff * cell_size, axis=1)
+
+    data = {"rows": rows, "cols": cols}
+    for pair, p in phase.fcc_morse.items():
+        key = f"V_{pair[0]}_{pair[1]}"
+        val = p["De"] * ((1.0 - np.exp(-p["a0"] * (r - p["r0"]))) ** 2 - 1.0)
+        data[key] = val.astype(np.float64)
+
+    filename = f"FCC{grid_size}_{phase.name}_{cell_size}.npz"
+    out_dir = Path(output_directory)
+    tmp_outfile = out_dir / f".tmp_{os.getpid()}_{int(time() * 1e6)}_{filename}"
+    np.savez(tmp_outfile, **data)
+    if not str(tmp_outfile).endswith(".npz"):
+        tmp_outfile = Path(str(tmp_outfile) + ".npz")
+    os.replace(tmp_outfile, out_dir / filename)
+
+
+def get_fcc_alloy(grid_size, cell_size, phase):
+    """
+    Loads or generates sparse FCC alloy interaction arrays.
+    """
+    filename = f"FCC{grid_size}_{phase.name}_{cell_size}.npz"
+    filepath = phase.location / filename
+    try:
+        with np.load(filepath, allow_pickle=False) as z:
+            return {k: z[k] for k in z.files}
+    except (IOError, ValueError, EOFError, KeyError):
+        generate_fcc_alloy(grid_size, cell_size, phase, phase.location)
+        with np.load(filepath, allow_pickle=False) as z:
+            return {k: z[k] for k in z.files}
 
 
 def get_Ewald(grid_size, cell_size):

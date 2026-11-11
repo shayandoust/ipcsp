@@ -1,8 +1,12 @@
 import heapq
 import math
+import sys
 from collections import defaultdict
 from functools import lru_cache
 import numpy as np
+
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(100000)
 
 
 def multinomial(counts):
@@ -247,18 +251,42 @@ def build_orbit_dp(orb_sizes, ion_counts):
     Respects Wyckoff multiplicities (orb_sizes[i]) and stoichiometry:
       - Orbit 0 must contain an ion (cannot be vacancy 'V' in CSP formulation).
       - Orbit i > 0 can be vacant ('V') or hold an ion t if orb_sizes[i] <= rem_counts[t].
+      - When all remaining orbits from orb_idx onward have multiplicity 1 (e.g. P1 space group
+        or FCC lattice sites), uses closed-form multinomial coefficient in O(1) time.
     """
     types = list(ion_counts.keys())
     O = len(orb_sizes)
+
+    # Precompute suffix capacities and whether all remaining orbits have size 1
+    suffix_cap = [0] * (O + 1)
+    suffix_all_ones = [True] * (O + 1)
+    for idx in range(O - 1, -1, -1):
+        suffix_cap[idx] = suffix_cap[idx + 1] + orb_sizes[idx]
+        suffix_all_ones[idx] = suffix_all_ones[idx + 1] and (orb_sizes[idx] == 1)
 
     @lru_cache(maxsize=None)
     def count_completions(orb_idx, rem_counts):
         if orb_idx == O:
             return 1 if all(c == 0 for c in rem_counts) else 0
-        # Prune if remaining capacity cannot satisfy remaining ions
-        rem_cap = sum(orb_sizes[orb_idx:])
-        if sum(rem_counts) > rem_cap:
+        tot_rem = sum(rem_counts)
+        rem_cap = suffix_cap[orb_idx]
+        if tot_rem > rem_cap or any(c < 0 for c in rem_counts):
             return 0
+
+        # O(1) closed-form multinomial when all remaining orbits have size 1
+        if suffix_all_ones[orb_idx]:
+            rem_orbs = O - orb_idx
+            if orb_idx > 0:
+                return multinomial(list(rem_counts) + [rem_orbs - tot_rem])
+            else:
+                # Orbit 0 must hold an ion (no vacancy at orbit 0)
+                total = 0
+                for idx, c in enumerate(rem_counts):
+                    if c >= 1:
+                        nxt = list(rem_counts)
+                        nxt[idx] -= 1
+                        total += multinomial(nxt + [(rem_orbs - 1) - (tot_rem - 1)])
+                return total
 
         s = orb_sizes[orb_idx]
         total = 0
@@ -297,8 +325,8 @@ def decompose_orbits_balanced(
 
     heap = [(-total_configs, 0, (), init_rem)]
     final_tasks = []
-    # Target maximum configurations per task: <= total_configs / p
-    max_allowed_configs = total_configs / p
+    # Target maximum configurations per task: <= ceil(total_configs / p) using exact int division
+    max_allowed_configs = (total_configs + p - 1) // p
     # task_cap is an optional hard upper bound if max_tasks is provided
     task_cap = max_tasks
 

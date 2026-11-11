@@ -1,0 +1,10 @@
+# Morse pair potentials for Au0.5Cu0.5 FCC L10 intermetallic alloy
+# Based on Girifalco & Weizer, Phys. Rev. 114, 687 (1959) and L10 CuAu ordering energetics
+species
+Au  core  0.000
+Cu  core  0.000
+
+morse
+Au  core  Au  core  0.4750  1.5830  2.8850  0.0  6.50
+Cu  core  Cu  core  0.3429  1.3588  2.8660  0.0  6.50
+Au  core  Cu  core  0.4320  1.4850  2.7400  0.0  6.50

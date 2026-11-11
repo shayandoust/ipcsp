@@ -39,8 +39,14 @@ venv.bak/
 gulptmp_*
 last_dwave.json
 results/
+runs/
 best_ipcsp.vasp
+*.zip
+*.pdf
+chat.txt
+.agents/
 
-# Cached interaction & Ewald matrices (.npy)
+# Cached interaction & Ewald matrices (.npy, .npz)
 ipcsp/data/**/*.npy
 ipcsp/data/Ewald/*.npy
+ipcsp/data/**/*.npz

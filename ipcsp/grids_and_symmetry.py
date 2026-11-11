@@ -41,6 +41,27 @@ def cubic(ions_on_side):
     return generate_orthorhombic([ions_on_side, ions_on_side, ions_on_side])
 
 
+def fcc(cells_per_side):
+    """
+    Generate fractional coordinates for a cells_per_side x cells_per_side x cells_per_side
+    FCC supercell (4 * cells_per_side**3 lattice sites).
+    """
+    basis = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.5, 0.5],
+            [0.5, 0.0, 0.5],
+            [0.5, 0.5, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    grid = np.arange(cells_per_side, dtype=np.float64)
+    gx, gy, gz = np.meshgrid(grid, grid, grid, indexing="ij")
+    cells = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1)
+    pos = (cells[:, None, :] + basis[None, :, :]).reshape(-1, 3) / float(cells_per_side)
+    return pos
+
+
 def readGroup(number):
     """
     Returns the list of augmented matrices of a space group with given number.
